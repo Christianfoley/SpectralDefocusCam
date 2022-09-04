@@ -10,16 +10,16 @@ import random as rand
 class Wrapper(Dataset):
     def __init__(self, datasets):
         self.datasets = datasets
-        self.lengths = [len(d) for d in datasets]
+        self.lengths = [len(d) for d in datasets] 
         self.length = np.sum(self.lengths)
-        print('datasets:', self.datasets, '\n', 'lengths:', self.lengths, '\n', 'totallength:', self.length)
+        #print('datasets:', self.datasets, '\n', 'lengths:', self.lengths, '\n', 'totallength:', self.length)
 
     def __getitem__(self, index):
         if index >= self.length:
             raise IndexError(f'{index} exceeds {self.length}')
         i = 0
         for length in self.lengths:
-            if not index - length > 0:
+            if index < length:
                 break
             index = index - length    
             i = i + 1
@@ -38,7 +38,7 @@ class SpectralDataset(Dataset): #initializer: can pass in transformation functio
         self.transform = transform
         self.target_transform = target_transform
         self.tag = tag
-        #possible tags: ['ref','cspaces','header', 'wc', 'pcc', 'paviaU']
+        #possible tags: ['ref','cspaces','header', 'wc', 'pcc', 'pavia']
         
     def __len__(self):
         return len(self.img_dir)
@@ -47,6 +47,12 @@ class SpectralDataset(Dataset): #initializer: can pass in transformation functio
     def __getitem__(self, idx): 
         if self.tag == None:
             image = scipy.io.loadmat(self.img_dir[idx])
+        elif type(self.tag) == list:
+            dict = scipy.io.loadmat(self.img_dir[idx])
+            for subtag in self.tag:
+                if subtag in dict:
+                    image = dict[subtag]
+                    break
         else:
             image = scipy.io.loadmat(self.img_dir[idx])[self.tag]
         
@@ -80,8 +86,9 @@ class RandFlip(object): #flip image on the x and y axes depending on random size
         return sample
     
 class chooseSpectralBands(object): # Selects spectral bands of object sample. Default bands idx: 0-30
-    def __init__(self, bands = (0, 30)):
+    def __init__(self, bands = (0, 30), interp = False):
         self.bands = bands
+        self.interp = interp
     def __call__(self, sample):
         sample['image'] = sample['image'][...,self.bands[0]:self.bands[1]]
         return sample
@@ -105,7 +112,7 @@ class subImageRand(object):
         sample['image'] = sample['image'][xRand:(xRand + self.output_size[0]), yRand:(yRand + self.output_size[1]), :]
         return sample
 
-#allows for the readingof pca reduced images
+#allows for the reading of pca reduced images
 class readCompressed(object):
     def __call__(self, sample):
         #get decompress image (image is a .mat file of pca compressed data)
@@ -116,11 +123,3 @@ class readCompressed(object):
         #[:,:,None] makes 2d np array into 3d np array
         sample['image'] = np.reshape(np.transpose(spectra)[:,:, None], (wid[0][0],hei[0][0], len(spectra))) 
         return sample
-    
-        '''
-        # read and crop the .csv wavelengths file
-        with open('sample_data/fruitdata/matlabHyper/hyperWavelengths.csv', newline='') as f:
-            reader = csv.reader(f)
-            data = list(reader)
-        w = data[24:389]
-        '''

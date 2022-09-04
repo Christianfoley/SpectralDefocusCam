@@ -71,26 +71,20 @@ class MyEnsemble(nn.Module):
         super(MyEnsemble, self).__init__()
         self.model1 = model1
         self.model2 = model2
+        
     def forward(self, x, spec_dim = 2): #spectral channel needs to be padded up to power of 2
-        self.output1 = self.model1(x)
-        out1padded = self.spectral_pad(self.output1, spec_dim)
-        #interleaved = self.model2(torch.unsqueeze(self.interleave(out1padded), 0))
-        self.output = self.model2(out1padded)
-        return self.output
+        self.output1 = self.model1(x)[0].unsqueeze(0)
+        self.padded = self.spectral_pad(self.output1, spec_dim = 2, size = 2)
+        self.output2 = self.model2(self.padded)[:,:,1:-1,:,:][0]
+        return self.output2
 
-    def spectral_pad(self, x, spec_dim = 2):
+    def spectral_pad(self, x, spec_dim = 2, size = -1):
         spec_channels = x.shape[spec_dim]
         padsize = 0
         while spec_channels & (spec_channels - 1) != 0:
             spec_channels += 1
             padsize += 1
+        padsize = size if size >= 0 else padsize
         return F.pad(x, (0,0,0,0,padsize//2,padsize//2 + padsize % 2), 'constant', 0)
-        
-    def interleave(self, batch):
-        tensor1 = batch[0][0]
-        tensor2 = batch[0][1]
-        channels, h, w = tensor1.shape[0] + tensor2.shape[0], tensor1.shape[1], tensor1.shape[2]
-        out = torch.stack((tensor1, tensor2), dim=1).view(channels, h, w)
-        return torch.unsqueeze(out,0)
         
         

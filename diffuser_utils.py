@@ -10,6 +10,31 @@ import glob
 import matplotlib.pyplot as plt
 import scipy.io
 
+def interleave3d(t, spec_dim = 2): #takes 1,2,2,x,a,a returns 1,2,2x,a,a
+    assert(spec_dim > 0) #we need 0th dimension to be the blurs
+    spec_dim = spec_dim - 1
+    batchsize = len(t)
+    outlist = []
+    for i in range(batchsize):
+        ab = t[i]
+        stacked = torch.stack([ab[0],ab[1]], dim = spec_dim)
+        interleaved = torch.flatten(stacked, start_dim = spec_dim - 1, end_dim = spec_dim)
+        outlist.append(interleaved)
+    return torch.stack(outlist)
+
+def fft_psf(model, h):
+    h_complex = pad_zeros_torch(model, torch.complex(h,torch.zeros_like(h)))
+    H = torch.fft.fft2(torch.fft.ifftshift(h_complex)).unsqueeze(1)
+    return H
+
+def fft_im(im):
+    xc = torch.complex(im, torch.zeros_like(im))  
+    Xi = torch.fft.fft2(xc)    
+    return Xi
+
+def tt(x, device = 'cuda:0'):
+    return torch.tensor(x, dtype = torch.float32, device = device)
+
 def load_mask(path = 'sample_data/calibration.mat'):
     spectral_mask=scipy.io.loadmat(path)
     mask=spectral_mask['mask']

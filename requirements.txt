@@ -1,0 +1,11 @@
+cupy==11.1.0
+ipython==8.4.0
+ipywidgets==7.6.3
+matplotlib==3.3.4
+numpy==1.20.1
+Pillow==9.2.0
+scikit_image==0.18.1
+scipy==1.6.2
+skimage==0.0
+torch==1.12.1
+torchvision==0.13.1

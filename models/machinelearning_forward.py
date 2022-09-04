@@ -14,26 +14,22 @@ class Forward_Model(torch.nn.Module):
                  blur_type = 'symmetric',  # symmetric or asymmetric blur kernel 
                  optimize_blur = False):   # choose whether to learn the best blur or not (warning, not stable)
         super(Forward_Model, self).__init__()
-        
         self.cuda_device = cuda_device
         self.blur_type  = blur_type
-       
+        self.num_ims = num_ims
     
          ## Initialize constants
         self.DIMS0 = mask.shape[0]  # Image Dimensions
         self.DIMS1 = mask.shape[1]  # Image Dimensions
         self.PAD_SIZE0 = int((self.DIMS0))     # Pad size
         self.PAD_SIZE1 = int((self.DIMS1))     # Pad size
-        
-        self.num_ims = num_ims
-        
-        
-        
+
+  
         if w_init is None: #if no blur specified, use default
             if self.blur_type == 'symmetric':
-                w_init = np.linspace(.002, .065, num_ims)
+                w_init = np.linspace(.002, .035, num_ims) # sharp bound, blurry bound: (deflt:.002,0.035)
             else:
-                w_init = np.linspace(.002, .1, num_ims)
+                w_init = np.linspace(.002, .01, num_ims)
                 w_init =  np.repeat(np.array(w_init)[np.newaxis], self.num_ims, axis = 0).T
                 w_init[:,1] *=.5
              
@@ -51,8 +47,8 @@ class Forward_Model(torch.nn.Module):
                                                          requires_grad = optimize_blur))
 
         # set up grid 
-        x=np.linspace(-1,1,self.DIMS0); 
-        y=np.linspace(-1,1,self.DIMS1); 
+        x=np.linspace(-1,1,self.DIMS1); 
+        y=np.linspace(-1,1,self.DIMS0); 
         X,Y=np.meshgrid(x,y)
         
         self.X = torch.tensor(X, dtype=torch.float32, device=self.cuda_device)
@@ -62,71 +58,44 @@ class Forward_Model(torch.nn.Module):
         self.mask_var = torch.tensor(self.mask, dtype=torch.float32, device=self.cuda_device).unsqueeze(0)
         self.psf = np.empty((num_ims, self.DIMS0, self.DIMS1))
         
-    # Forward model for blur
-    def Hfor(self, i):
-        if self.blur_type == 'symmetric':
-            psf= torch.exp(-((self.X/self.w_blur[i])**2+(self.Y/self.w_blur[i])**2))
-        else:
-            psf= torch.exp(-((self.X/self.w_blur[i,0])**2+(self.Y/self.w_blur[i,1])**2))
-            
-        #psf = psf/torch.linalg.norm(psf, ord=float('inf'))
-        
-        self.psf[i] = psf.detach().cpu().numpy()
-        
-        h_complex = pad_zeros_torch(self,torch.complex(psf,torch.zeros_like(psf)).unsqueeze(0))
-        H = torch.fft.fft2(ifftshift2d(h_complex), norm = 'ortho') # ---------try ortho everywhere
-        print(self.Xi.shape, H.shape)
-        
-        HX = H*self.Xi[i]
-        out = torch.fft.ifft2(HX)
-        out_r= out.real
-        
-        return out_r
     
+    def make_psfs(self, ):
+        psfs = []
+        for i in range(0,self.num_ims):
+            if self.blur_type == 'symmetric':
+                psf= torch.exp(-((self.X/self.w_blur[i])**2+(self.Y/self.w_blur[i])**2))
+            else:
+                psf= torch.exp(-((self.X/self.w_blur[i,0])**2+(self.Y/self.w_blur[i,1])**2))
+            psf = psf/torch.linalg.norm(psf, ord=float('inf'))
+            psfs.append(psf)
+        return torch.stack(psfs, 0)
     
-    #calculates the adjoint of the simulated measurements:
-    #   sim_meas contains num_ims simulated meas' in the form [1, num_ims, meassize1, meassize2]
-    #   psf is the psf of the model
-    #   see https://waller-lab.github.io/DiffuserCam/tutorial/algorithm_guide.pdf
-    #   and https://waller-lab.github.io/DiffuserCam/tutorial/GD.html
-    def Hadj(self, sim_meas, psf, num_ims):
-        s0, s1 = self.PAD_SIZE0//2, self.PAD_SIZE1//2
-        pad = (s0, s0, s1, s1)
-        sim_meas = torch.unsqueeze(sim_meas, 2)
-        #print('sim_meas shape:', sim_meas.shape)
-        sm = sim_meas * self.mask_var
-        sm = F.pad(sm, pad, 'constant', 0)
-        smc = torch.complex(sm, torch.zeros_like(sm))
-        smfft = torch.fft.fft2(smc, dim = (-2, -1), norm = 'ortho')
-        #print('2:',smfft.shape)
-        
-        psf = torch.tensor(psf).to(self.cuda_device)
-        h_complex = pad_zeros_torch(self,torch.complex(psf,torch.zeros_like(psf)).unsqueeze(0))
-        Hconj = torch.unsqueeze(torch.conj(torch.fft.fft2(ifftshift2d(h_complex), norm = 'ortho')), 2)
-        
-        adj_meas = torch.fft.ifft2(Hconj*smfft, dim = (-2, -1), norm = 'ortho').real
-        #print('adj_meas shape:', adj_meas.shape)
-        return adj_meas#.float()
+    def Hfor(self):
+        H = fft_psf(self, self.psfs)
+        #print(H.shape)
+        X = self.Xi.unsqueeze(2)[0]
+        #print(X.shape)
+        out = torch.fft.ifft2(H*X).real
+        #print(out.shape)
+        output = self.mask_var * crop_forward(self,  out)
+        output = torch.sum(output, 2)
+        #print('hfor out: ',output.shape)
+        return output
+    
+    def Hadj(self, sim_meas):
+        #print(sim_meas.shape, self.mask_var.shape)
+        Hconj = torch.conj(fft_psf(self, self.psfs))
+        sm = pad_zeros_torch(self, sim_meas.unsqueeze(2) * self.mask_var)
+        #print(sm.shape)
+        SM = fft_im(sm)#[0].unsqueeze(1)
+        #print(SM.shape, Hconj.shape)
+        adj_meas = torch.fft.ifft2(Hconj*SM).real
+        return adj_meas
     
     # forward call for the model
     def forward(self, in_image):
-        #x = my_pad(self, in_image)  
-        x = in_image # pad image
-        xc = torch.complex(x, torch.zeros_like(x))  # make into a complex number (needed for FFT)
-        self.Xi = torch.fft.fft2(xc, norm = 'ortho')                # Take FFT of image 
-        
-        # Generate simulated images for each blur amount 
-        out_list = []
-        for i in range(0,self.num_ims):
-            output = self.mask_var * crop_forward(self,  self.Hfor(i))
-            
-            output = torch.sum(output, 1)
-            
-            #output= output/torch.max(output)
-            out_list.append(output)
-            
-        final_output = torch.stack(out_list, 1)
-        print(final_output.shape)
-        #final_output_hadj = self.Hadj(final_output, self.psf, self.num_ims)
-
-        return final_output#_hadj
+        self.Xi = fft_im(my_pad(self,in_image)).unsqueeze(0)
+        self.psfs = self.make_psfs()
+        sim_output = self.Hfor()
+        final_output = crop_forward(self, self.Hadj(sim_output))
+        return final_output

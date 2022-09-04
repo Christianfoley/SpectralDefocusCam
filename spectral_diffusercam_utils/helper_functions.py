@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 import scipy.io
+import time
 from IPython.core.display import display, HTML
 from ipywidgets import interact, widgets, fixed
 
@@ -47,8 +48,32 @@ def pre_plot(x):
     x = x/np.max(x)
     x = np.clip(x, 0,1)
     return x
+
+def stack_rgb_opt_30(reflArray, channels = 30, offset = 0, opt = 'spectral_diffusercam_utils/false_color_calib.mat', scaling = [1,1,2.5]):
     
+    color_dict = scipy.io.loadmat(opt)
+    red = color_dict['red']; green = color_dict['green']; blue = color_dict['blue']
     
+    reflArray = reflArray/np.max(reflArray)
+    
+    red_channel = np.zeros((reflArray.shape[0], reflArray.shape[1]))
+    green_channel = np.zeros((reflArray.shape[0], reflArray.shape[1]))
+    blue_channel = np.zeros((reflArray.shape[0], reflArray.shape[1]))
+    
+    for i in range(0,channels):
+        ndx = int(offset+(i*64/channels)//1)
+        red_channel = red_channel + reflArray[:,:,i]*red[0,ndx]*scaling[0]
+        green_channel = green_channel + reflArray[:,:,i]*green[0,ndx]*scaling[1]
+        blue_channel = blue_channel + reflArray[:,:,i]*blue[0,ndx]*scaling[2]
+        
+    red_channel = red_channel/channels
+    green_channel = green_channel/channels
+    blue_channel = blue_channel/channels
+
+    stackedRGB = np.stack((red_channel,green_channel,blue_channel),axis=2)
+
+    return stackedRGB #original version for 64 channels    
+
 def stack_rgb_opt(reflArray, opt = 'spectral_diffusercam_utils/false_color_calib.mat', scaling = [1,1,2.5]):
     
     color_dict = scipy.io.loadmat(opt)
@@ -76,7 +101,8 @@ def stack_rgb_opt(reflArray, opt = 'spectral_diffusercam_utils/false_color_calib
 def preprocess(mask, psf, im):
     
     # Crop indices
-    c1 = 100; c2 = 420; c3 = 80; c4 = 540
+    c1 = 100; c2 = 420; c3 = 80; c4 = 540 #indices for 64 channel image
+    #c1 = 260-128; c2 = c1 + 256; c3 = 310 - 128; c4 = c3 + 256
     
     # Crop and normalize mask
     mask = mask[c1:c2, c3:c4, :] 
@@ -96,3 +122,22 @@ def preprocess(mask, psf, im):
     im = im/np.max(im)
     im[ind[0]-2:ind[0]+2, ind[1]-2:ind[1]+2] = 0
     return mask, psf, im
+
+def show_progress_bar(dataloader, current, process = 'training', nl = False):
+    current += 1
+    bar_length = 50
+    fraction_computed = current/dataloader.__len__()
+    
+    pointer = '>' if fraction_computed < 1 else '='
+    loading_string = '='*int(bar_length*fraction_computed) + '>' + '_'*int(bar_length*(1-fraction_computed))
+    output_string = f'\t {process} {current}/{dataloader.__len__()} [{loading_string}] ({int(fraction_computed * 100)}%)'
+    
+    if nl:
+        print(output_string)
+    elif fraction_computed < 1:
+        print(output_string, end='\r')
+    else:
+        print(output_string)
+        
+    #for smoother output
+    time.sleep(0.2) 
