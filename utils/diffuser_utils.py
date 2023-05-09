@@ -40,7 +40,9 @@ def tt(x, device="cuda:0"):
     return torch.tensor(x, dtype=torch.float32, device=device)
 
 
-def load_mask(path="../defocuscamdata/calibration_data/calibration.mat"):
+def load_mask(
+    path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
+):
     spectral_mask = scipy.io.loadmat(path)
     mask = spectral_mask["mask"]
     mask = mask[100:356, 100:356, :-1]

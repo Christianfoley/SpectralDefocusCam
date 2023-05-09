@@ -12,6 +12,7 @@ import argparse
 import train
 import inference
 import evaluation
+from utils.helper_functions import read_config
 
 
 def parse_args():
@@ -41,6 +42,7 @@ def main(module, config):
     """
     Run the specified module with the given configuration.
     """
+    config = read_config(config)
     if module == "train":
         train.main(config)
     if module == "inference":

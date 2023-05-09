@@ -44,23 +44,32 @@ class SpectralWrapper(Dataset):
     def partition(self, train_frac, val_frac, test_frac):
         assert train_frac + val_frac + test_frac == 1, "partitions must sum to 1"
 
-        partitions = [train_frac, val_frac, test_frac]
-        for i in range(len(partitions)):
-            frac = partitions[i]
-
-            # split each dataset into partitions
+        # split each dataset into partitions
+        partitions = []
+        for part in ["train", "val", "test"]:
             partition_datasets = []
-            for dataset in self.datasets:
-                img_dirs_frac = dataset.img_dirs[int(len(dataset) * frac)]
+            for j, dataset in enumerate(self.datasets):
+                # this is awkward but oh well
+                train_idx = int(len(dataset) * train_frac)
+                val_idx = int(len(dataset) * (train_frac + val_frac))
+                test_idx = int(len(dataset))
+
+                if part == "train":
+                    img_dirs_frac = dataset.img_dirs[0:train_idx]
+                elif part == "val":
+                    img_dirs_frac = dataset.img_dirs[train_idx:val_idx]
+                elif part == "test":
+                    img_dirs_frac = dataset.img_dirs[val_idx:test_idx]
+
                 dataset_frac = SpectralDataset(
                     img_dirs_frac, dataset.transform, dataset.tag
                 )
                 partition_datasets.append(dataset_frac)
 
             transform = self.transform
-            if i == 2:  # if test
+            if part == "test":
                 transform = self.test_transform
-            partitions[i] = SpectralWrapper(partition_datasets, transform)
+            partitions.append(SpectralWrapper(partition_datasets, transform))
 
         return tuple(partitions)
 

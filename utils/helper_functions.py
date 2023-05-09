@@ -1,14 +1,77 @@
+import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
+import torch
 import scipy.io
-import time
+import yaml
 from IPython.core.display import display, HTML
 from ipywidgets import interact, widgets, fixed
 
 import sys
 
 sys.path.append("spectral_diffusercam_utils/")
+
+
+def get_now():
+    """Returns current time in YYYY_MM_DD_HH_SS"""
+    now = datetime.datetime.now()
+    return now.strftime("%Y_%m_%d_%H_%M_%S")
+
+
+def get_device(device):
+    """
+    Returns a string representing the device to be used for PyTorch computations.
+    Raises:
+        ValueError: If "gpu" is specified as the input argument and no GPUs are available.
+
+    :params device (str): A string indicating whether to use "cpu" or "gpu".
+
+    :return str: If "cpu" is specified as the input argument, returns "cpu".
+             Otherwise, returns a string of the form "cuda:K", where K is the device number
+             of the GPU with the most available memory at the time of execution.
+    """
+    if device == "cpu":
+        return "cpu"
+    elif isinstance(device, int):
+        return f"cuda:{device}"
+    else:
+        device_count = torch.cuda.device_count()
+        if device_count == 0:
+            raise ValueError("No GPU info visible from this environment")
+        else:
+            max_memory = 0
+            max_device = 0
+            for i in range(device_count):
+                memory = torch.cuda.max_memory_allocated(i)
+                if memory > max_memory:
+                    max_memory = memory
+                    max_device = i
+            return f"cuda:{max_device}"
+
+
+def write_yaml(yml_dict, yml_filename):
+    """
+    Writes dict as yml file.
+
+    :param dict yml_dict: Dictionary to be written
+    :param str yml_filename: Full path file name of yml
+    """
+    file_string = yaml.safe_dump(yml_dict)
+    with open(yml_filename, "w") as f:
+        f.write(file_string)
+
+
+def read_config(config_fname):
+    """Read the config file in yml format
+
+    :param str config_fname: fname of config yaml with its full path
+    :return: dict config: Configuration parameters
+    """
+
+    with open(config_fname, "r") as f:
+        config = yaml.safe_load(f)
+
+    return config
 
 
 def plotf2(r, img, ttl, sz):

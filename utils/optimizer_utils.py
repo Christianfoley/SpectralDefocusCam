@@ -1,5 +1,6 @@
 import torch.optim as optim
 import torch.nn as nn
+import copy
 
 
 def get_optimizer(model, name, kwparams):
@@ -15,8 +16,9 @@ def get_optimizer(model, name, kwparams):
     elif name == "rmsprop":
         optimizer = optim.RMSprop
 
-    kwparams["params"] = model.parameters()
-    optimizer = optimizer(**kwparams)
+    args = copy.deepcopy(kwparams)
+    args["params"] = model.parameters()
+    optimizer = optimizer(**args)
     return optimizer
 
 
@@ -30,13 +32,13 @@ def get_lr_scheduler(optimizer, name, kwparams):
         scheduler = optim.lr_scheduler.ExponentialLR
     elif name == "plateau":
         scheduler = optim.lr_scheduler.ReduceLROnPlateau
-
-    kwparams["optimizer"] = optimizer
-    scheduler = scheduler(**kwparams)
+    args = copy.deepcopy(kwparams)
+    args["optimizer"] = optimizer
+    scheduler = scheduler(**args)
     return scheduler
 
 
-def get_loss_function(name, kwparams):
+def get_loss_function(name, kwparams=None):
     """
     Initializes and returns a loss funciton based upon the given params
     """
@@ -51,6 +53,8 @@ def get_loss_function(name, kwparams):
             "See https://github.com/VainF/pytorch-msssim/tree/master"
         )
 
+    if kwparams is None:
+        kwparams = {}
     lfn = lfn(**kwparams)
     return lfn
 
@@ -89,3 +93,11 @@ class NoamOpt:
             self.model_size ** (-0.5)
             * min(step ** (-0.5), step * self.warmup ** (-1.5))
         )
+
+
+def get_lr(optimizer):
+    """
+    Get current learning rate from a pytorch optimizer with variable lr
+    """
+    for param_group in optimizer.param_groups:
+        return param_group["lr"]

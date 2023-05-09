@@ -46,7 +46,6 @@ class Forward_Model(torch.nn.Module):
                 w_init = np.repeat(np.array(w_init)[np.newaxis], self.num_ims, axis=0).T
                 w_init[:, 1] *= 0.5
 
-        print("optimize blur", optimize_blur)
         if self.blur_type == "symmetric":
             # self.w_init =  np.repeat(np.array(w_init[0])[np.newaxis], self.num_ims, axis = 0)
             self.w_init = w_init

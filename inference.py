@@ -99,7 +99,7 @@ def get_data_inference():
         tag="ref",
     )
     # wrap training sets
-    train_data = ds.Wrapper([summer_data, fruit_train_data])
+    train_data = ds.SpectralWrapper([summer_data, fruit_train_data])
 
     # make dataloaders for pytorch
     test_dataloader = DataLoader(pavia_test_data, batch_size=1, shuffle=False)
@@ -222,7 +222,3 @@ def main():
             metric=EVAL_METRIC,
         )
         visualize(save_folder, ids=list(range(3)))
-
-
-if __name__ == "__main__":
-    main()
