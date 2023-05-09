@@ -1,7 +1,0 @@
-name: SpectralDiffuserCam
-channels:
-  - defaults
-dependencies:
-  - anaconda
-  - cupy
-prefix: /home/kristina/anaconda3/envs/SpectralDiffuserCam
