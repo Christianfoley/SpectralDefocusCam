@@ -249,6 +249,7 @@ def run_training(
             if plot:
                 fig = generate_plot(test_np, ground_truth_np)
                 writer.add_figure(f"epoch_{i}_fig", fig)
+            early_stopper(val_loss=val_loss, model=model, epoch=i)
         else:
             print(f"\nEpoch ({i}) losses  (train) : ({train_loss})")
 
@@ -271,17 +272,20 @@ def run_training(
         writer.add_scalar("learning rate", optim_utils.get_lr(optimizer), global_step=i)
 
         # early stopping
-        early_stopper(val_loss=val_loss, model=model, epoch=i)
+
         if early_stopper.early_stop:
             print("\t Stopping early...")
 
             scipy.io.savemat(
-                save_folder + "saved_lists.mat",
-                {
-                    "val_loss": val_loss_list,
-                    "train_loss": train_loss_list,
-                    "w_list": w_list,
-                },
+                os.path.join(
+                    save_folder,
+                    "saved_lists.mat",
+                    {
+                        "val_loss": val_loss_list,
+                        "train_loss": train_loss_list,
+                        "w_list": w_list,
+                    },
+                )
             )
 
             break
