@@ -1,0 +1,37 @@
+# example config for training
+
+# data paths
+checkpoints_dir: "checkpoints/dir/here"
+psf_dir: "psfs/dir/here" # unused if sim_blur = True
+
+# model params
+device: "cpu"
+stack_depth: 3
+sim_blur: True
+optimize_blur: False
+blur_type: "symmetric"
+
+# training params
+epochs: 500
+batch_size: 16
+data_partition: [0.7,0.15,0.15] #train,test,val
+early_stopping_patience: 10
+loss_function: 
+  name: "mse" # mse, mae, cossim, lpips, psnr, ssim
+  params: 
+optimizer: 
+  name: "adam" #adam, sgd, adagrad, rmsprop
+  params: #kwargs
+    lr: 0.0008
+    weight_decay: 0.01
+    momentum: 0.8
+lr_scheduler: 
+  name: "warm_cosine_anneal" # exponential, plateau
+  params: 
+    T_0: 30
+    T_mult: 1.1
+
+# restarting from checkpoint
+preload_weights: False
+checkpoint_dir: "your/weights/here.pt"
+offset_in_epochs: 0

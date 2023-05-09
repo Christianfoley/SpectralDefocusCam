@@ -1,0 +1,11 @@
+# Template config for evaluation
+
+# data paths
+predictions: ["path/to/preds/dir1", "path/to/preds/dir2", "path/to/preds/dir3"]
+output_table_dir: "path/to/table/dir" #if NONE will use parent of first preds dir
+visualization_dir: "path/to/vis/dir" #if NONE will use parent of first preds dir
+
+# evaluation parameters (corresponding to each predictions)
+metrics: ["mae", "mse", "cossim", "psnr", "ssim", "lpips"]
+stack_depths: [2, 3, 4, 5, 6]
+one_norm_visualization: True 
