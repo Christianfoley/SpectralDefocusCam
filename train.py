@@ -277,15 +277,12 @@ def run_training(
             print("\t Stopping early...")
 
             scipy.io.savemat(
-                os.path.join(
-                    save_folder,
-                    "saved_lists.mat",
-                    {
-                        "val_loss": val_loss_list,
-                        "train_loss": train_loss_list,
-                        "w_list": w_list,
-                    },
-                )
+                os.path.join(save_folder, "saved_lists.mat"),
+                {
+                    "val_loss": val_loss_list,
+                    "train_loss": train_loss_list,
+                    "w_list": w_list,
+                },
             )
 
             break
