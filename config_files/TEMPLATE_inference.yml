@@ -2,13 +2,8 @@
 
 # data paths
 weights: ["your/weights/here1.pt", "your/weights/here2.pt", "your/weights/here3.pt"]
-psf_dir: "your/psfs/here" #used if sim blur false
-
-#model params (corresponding to weights)
-device: "cpu"
-stack_depth: [2, 3, 4]
-sim_blur: [True, True, True]
-blur_type: ["symmetric", "symmetric", "symmetric"]
 
 #inference params
 prelim_metric: "mse" # mae, mse, cossim, lpips, psnr, ssim
+num_workers: 4
+device: "cpu"

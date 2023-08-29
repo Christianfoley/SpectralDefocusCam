@@ -1,11 +1,82 @@
 from torch.utils.data import Dataset
-from torchvision import datasets
-from torchvision.transforms import ToTensor
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+
 import scipy.io
 import cv2
 import torch
 import numpy as np
 import random as rand
+import os
+import glob
+
+
+def get_data(batch_size, data_split, base_path, workers=1):
+    assert os.path.exists(base_path), "base data path does not exist"
+    pavia = glob.glob(os.path.join(base_path, "paviadata/Pavia*.mat"))
+    fruitset_pca = glob.glob(os.path.join(base_path, "fruitdata/pca/*.mat"))
+    harvard = glob.glob(os.path.join(base_path, "harvard/CZ_hsdb/*.mat"))
+    harvard_indoor = glob.glob(os.path.join(base_path, "harvard/CZ_hsdbi/*.mat"))
+
+    # load pavia images (validation set)
+    pavia_data = SpectralDataset(
+        pavia,
+        transforms.Compose(
+            [
+                subImageRand(),
+                chooseSpectralBands(interp=True),
+            ]
+        ),
+        tag=["paviaU", "pavia"],
+    )
+    # load giessen images
+    fruit_data = SpectralDataset(
+        fruitset_pca,
+        transforms.Compose(
+            [
+                readCompressed(),
+                Resize(),
+                chooseSpectralBands(),
+            ]
+        ),
+    )
+    # load harvard images
+    harvard_data = SpectralDataset(
+        harvard_indoor + harvard,
+        transforms.Compose(
+            [
+                Resize(),
+                chooseSpectralBands(),
+            ]
+        ),
+        tag="ref",
+    )
+
+    # wrap all training sets, specify transforms and partition
+    all_data = SpectralWrapper(
+        datasets=[pavia_data, fruit_data, harvard_data],
+        transform=transforms.Compose(
+            [
+                Normalize(),
+                RandFlip(),
+                toTensor(),
+            ]
+        ),
+        test_transform=transforms.Compose(
+            [
+                Normalize(),
+                toTensor(),
+            ]
+        ),
+    )
+    train, val, test = all_data.partition(*data_split)
+
+    # make dataloaders for pytorch
+    train_dataloader = DataLoader(train, batch_size, shuffle=True, num_workers=workers)
+    val_dataloader = DataLoader(val, batch_size, shuffle=True, num_workers=workers)
+    test_dataloader = DataLoader(test, batch_size)
+
+    return train_dataloader, val_dataloader, test_dataloader
 
 
 class SpectralWrapper(Dataset):

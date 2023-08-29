@@ -1,0 +1,97 @@
+import numpy as np
+import glob
+import os
+
+import lpips
+import torch
+import skimage.metrics as metrics
+from sklearn.metrics.pairwise import cosine_similarity
+import scipy
+
+import utils.helper_functions as helper
+
+
+# absolute metrics
+def get_l1_score(img1, img2, axis=None):
+    mse = np.mean((np.abs(img1 - img2)), axis=axis)
+    return mse
+
+
+def get_l2_score(img1, img2, axis=None):
+    mse = np.mean(((img1 - img2) ** 2), axis=axis)
+    return mse
+
+
+def get_cossim_score(img1, img2):
+    img1, img2 = img1.flatten(), img2.flatten()
+    img1, img2 = np.expand_dims(img1, 0), np.expand_dims(img2, 0)
+    score = cosine_similarity(img1, img2)
+    return score
+
+
+# structural (x-y) metrics
+def get_mean_lpips_score(img1, img2, net="alex"):
+    """alex for best forward scores, vgg closer to traditional percep loss (for opt)"""
+    loss_fn = lpips.LPIPS(net=net)
+    channels = img1.shape[-3]
+
+    lpips_loss = []
+    for i in range(0, channels // 3):
+        a = torch.tensor(img1[..., 3 * i : 3 * i + 3, :, :])
+        b = torch.tensor(img2[..., 3 * i : 3 * i + 3, :, :])
+        lpips_loss.append(loss_fn(a, b).detach().numpy())
+    return np.mean(np.asarray(lpips_loss))
+
+
+def get_mean_psnr_score(img1, img2):
+    slice_scores = []
+    for i in range(img1.shape[-3]):
+        score = metrics.peak_signal_noise_ratio(img1[i], img2[i], data_range=1)
+        slice_scores.append(score)
+    return np.mean(np.array(slice_scores))
+
+
+def get_mean_ssim_score(img1, img2):
+    slice_scores = []
+    for i in range(img1.shape[-3]):
+        score = metrics.structural_similarity(img1[i], img2[i], data_range=1)
+        slice_scores.append(score)
+    return np.mean(np.array(slice_scores))
+
+
+# ----------- evaluation procedure ------------#
+def get_score(metric, pred, sample):
+    metrics_fns = {
+        "mae": get_l1_score,
+        "mse": get_l2_score,
+        "cossim": get_cossim_score,
+        "psnr": get_mean_psnr_score,
+        "ssim": get_mean_ssim_score,
+        "lpips": get_mean_lpips_score,
+    }
+    return metrics_fns[metric](pred, sample)
+
+
+def get_metrics(preds_folder, metrics_list, aggregate="mean"):
+    pred_mats = glob.glob(os.path.join(preds_folder, "*.mat"))
+    pred_mats = [p for p in pred_mats if "metrics.mat" not in p]
+
+    scores = {metric: [] for metric in metrics_list}
+    for i, mat_file in enumerate(pred_mats):
+        mat = scipy.io.loadmat(mat_file)
+        pred = helper.value_norm(mat["prediction"])
+        sample = helper.value_norm(mat["sample"])
+
+        for metric in metrics_list:
+            scores[metric].append(get_score(metric, pred, sample))
+
+    for metric in metrics_list:
+        if aggregate == "mean":
+            scores[metric] = np.mean(np.array(scores[metric]))
+        elif aggregate == "sum":
+            scores[metric] = sum(scores[metric])
+        elif aggregate == "max":
+            scores[metric] = max(scores[metric])
+
+    scipy.io.savemat(os.path.join(preds_folder, "metrics.mat"), scores)
+    return scores

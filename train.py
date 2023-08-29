@@ -5,11 +5,9 @@ import torch.nn.functional as F
 import tqdm
 import matplotlib.pyplot as plt
 import scipy.io
-import os, glob
+import os
 
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
-from torchvision import transforms
 
 from utils.diffuser_utils import *
 import utils.early_stop_utils as stopping
@@ -24,74 +22,6 @@ import sys
 sys.path.append("..")
 
 import models_learning.unet3d as Unet3d
-
-
-def get_data(batch_size, data_split, base_path, workers=1):
-    assert os.path.exists(base_path), "base data path does not exist"
-    pavia = glob.glob(os.path.join(base_path, "paviadata/Pavia*.mat"))
-    fruitset_pca = glob.glob(os.path.join(base_path, "fruitdata/pca/*.mat"))
-    harvard = glob.glob(os.path.join(base_path, "harvard/CZ_hsdb/*.mat"))
-    harvard_indoor = glob.glob(os.path.join(base_path, "harvard/CZ_hsdbi/*.mat"))
-
-    # load pavia images (validation set)
-    pavia_data = ds.SpectralDataset(
-        pavia,
-        transforms.Compose(
-            [
-                ds.subImageRand(),
-                ds.chooseSpectralBands(interp=True),
-            ]
-        ),
-        tag=["paviaU", "pavia"],
-    )
-    # load giessen images
-    fruit_data = ds.SpectralDataset(
-        fruitset_pca,
-        transforms.Compose(
-            [
-                ds.readCompressed(),
-                ds.Resize(),
-                ds.chooseSpectralBands(),
-            ]
-        ),
-    )
-    # load harvard images
-    harvard_data = ds.SpectralDataset(
-        harvard_indoor + harvard,
-        transforms.Compose(
-            [
-                ds.Resize(),
-                ds.chooseSpectralBands(),
-            ]
-        ),
-        tag="ref",
-    )
-
-    # wrap all training sets, specify transforms and partition
-    all_data = ds.SpectralWrapper(
-        datasets=[pavia_data, fruit_data, harvard_data],
-        transform=transforms.Compose(
-            [
-                ds.Normalize(),
-                ds.RandFlip(),
-                ds.toTensor(),
-            ]
-        ),
-        test_transform=transforms.Compose(
-            [
-                ds.Normalize(),
-                ds.toTensor(),
-            ]
-        ),
-    )
-    train, val, test = all_data.partition(*data_split)
-
-    # make dataloaders for pytorch
-    train_dataloader = DataLoader(train, batch_size, shuffle=True, num_workers=workers)
-    val_dataloader = DataLoader(val, batch_size, shuffle=True, num_workers=workers)
-    test_dataloader = DataLoader(test, batch_size)
-
-    return train_dataloader, val_dataloader, test_dataloader
 
 
 def get_model(config, device):
@@ -270,6 +200,9 @@ def run_training(
         writer.add_scalar("train loss", train_loss_list[-1], global_step=i)
         writer.add_scalar("validation loss", val_loss_list[-1], global_step=i)
         writer.add_scalar("learning rate", optim_utils.get_lr(optimizer), global_step=i)
+        for name, param in model.named_parameters():
+            writer.add_histogram(f"{name} grad", param.grad, global_step=i)
+            writer.add_histogram(f"{name} weight", param.weight, global_step=i)
 
         # early stopping
 
@@ -316,7 +249,7 @@ def main(config):
 
     # init data and model
     print("Loading data...", end="")
-    train_loader, val_loader, test_loader = get_data(
+    train_loader, val_loader, test_loader = ds.get_data(
         config["batch_size"],
         config["data_partition"],
         config["base_data_path"],

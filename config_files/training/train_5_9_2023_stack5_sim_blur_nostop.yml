@@ -7,18 +7,18 @@ base_data_path: "/home/cfoley_waller/defocam/defocuscamdata/sample_data"
 
 # model params
 device: 0
-stack_depth: 4
+stack_depth: 5
 sim_blur: True
 optimize_blur: False
 blur_type: "symmetric"
 
 # training params
-epochs: 300
-batch_size: 1 
+epochs: 500
+batch_size: 1
 num_workers: 4
 data_partition: [0.7,0.15,0.15] #train,val,test
-early_stopping_patience: 5
-validation_stride: 2
+early_stopping_patience: 100
+validation_stride: 1
 checkpoint_stride: 10
 loss_function: 
   name: "mse" # mse, mae, cossim, lpips, psnr, ssim
@@ -29,9 +29,10 @@ optimizer:
     lr: 0.0001
     weight_decay: 0
 lr_scheduler: 
-  name: "exponential" # warm_cosine_anneal, exponential, plateau
+  name: "plateau" # warm_cosine_anneal, exponential, plateau
   params: 
-    gamma: 0.95
+    patience: 10
+    factor: 0.9
 
 
 # restarting from checkpoint

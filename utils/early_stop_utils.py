@@ -51,9 +51,15 @@ class EarlyStopping:
         """
         score = -val_loss
 
+        # determine based on score
         if self.best_score is None:
             self.best_score = score
             save_here = True
+        elif np.isnan(score):
+            self.early_stop = True
+            self.trace_func(
+                f"EarlyStopping counter: {self.counter} out of {self.patience}"
+            )
         elif score < self.best_score + self.delta:
             self.counter += 1
             self.trace_func(
@@ -65,6 +71,7 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
 
+        # save checkpoint is stopping
         if self.early_stop:
             self.save_checkpoint(val_loss, model, epoch)
 
