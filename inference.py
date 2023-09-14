@@ -8,12 +8,12 @@ from utils.diffuser_utils import *
 import utils.helper_functions as helper
 import utils.metrics as metrics
 import data_utils.dataset as ds
-import models_learning.spectral_model as sm
+import models_learning.ensemble as ensemble
 import models_learning.forward as fm
 
 sys.path.append("..")
 
-import models_learning.unet3d as Unet3d
+import models_learning.Unet.unet3d as Unet3d
 
 
 def get_model_pretrained(weights, train_config, device):
@@ -31,7 +31,7 @@ def get_model_pretrained(weights, train_config, device):
 
     # reconstruction model
     recon_model = Unet3d.Unet(n_channel_in=train_config["stack_depth"], n_channel_out=1)
-    model = sm.MyEnsemble(forward_model.to(device), recon_model.to(device))
+    model = ensemble.MyEnsemble(forward_model.to(device), recon_model.to(device))
 
     model.load_state_dict(torch.load(weights, map_location=torch.device(device)))
     model.eval()

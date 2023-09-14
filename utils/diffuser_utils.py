@@ -42,10 +42,11 @@ def tt(x, device="cuda:0"):
 
 def load_mask(
     path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
+    patch_size=[256, 256],
 ):
     spectral_mask = scipy.io.loadmat(path)
     mask = spectral_mask["mask"]
-    mask = mask[100:356, 100:356, :-1]
+    mask = mask[100 : 100 + patch_size[0], 100 : 100 + patch_size[1], :-1]
     mask = (mask[..., 0::2] + mask[..., 1::2]) / 2
     mask = mask[..., 0:30]
     return mask

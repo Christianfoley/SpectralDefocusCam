@@ -1,8 +1,7 @@
 # Template config file for inference
 
 # data paths
-weights: ["/home/cfoley_waller/defocam/defocuscamdata/models/checkpoint_4_5_True_symmetric_False/2023_05_09_20_44_31/saved_model_ep100_testloss_0.0013107480894847725.pt",
-"/home/cfoley_waller/defocam/defocuscamdata/models/checkpoint_4_4_True_symmetric_False/2023_05_09_14_08_32/saved_model_ep90_testloss_0.0018255717870105353.pt"]
+weights: ["/home/cfoley_waller/defocam/defocuscamdata/models/checkpoint_4_5_True_symmetric_False/2023_05_09_20_44_31/saved_model_ep100_testloss_0.0013107480894847725.pt", "/home/cfoley_waller/defocam/defocuscamdata/models/checkpoint_4_4_True_symmetric_False/2023_05_09_14_08_32/saved_model_ep90_testloss_0.0018255717870105353.pt"]
 
 #inference params
 prelim_metric: "ssim" # mae, mse, cossim, lpips, psnr, ssim

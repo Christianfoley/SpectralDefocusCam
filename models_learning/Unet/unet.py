@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models_learning.modules import ConvBlock
+from models_learning.Unet.modules import ConvBlock
 
 
 class Unet(nn.Module):

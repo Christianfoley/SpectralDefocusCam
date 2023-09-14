@@ -1,7 +1,8 @@
-from models_learning.babyunet import BabyUnet
-from models_learning.dncnn import DnCNN
-from models_learning.singleconv import SingleConvolution
-from models_learning.unet import Unet
+from models_learning.Unet.babyunet import BabyUnet
+from SpectralDefocusCam.models_learning.conv.dncnn import DnCNN
+from SpectralDefocusCam.models_learning.conv.singleconv import SingleConvolution
+from models_learning.Unet.unet import Unet
+from models_learning.LCNF.liif import LIIF
 
 
 def get_model(name, in_channels, out_channels, **kwargs):
@@ -13,3 +14,5 @@ def get_model(name, in_channels, out_channels, **kwargs):
         return DnCNN(in_channels, out_channels)
     if name == "convolution":
         return SingleConvolution(in_channels, out_channels, kwargs["width"])
+    if name == "lcnf":
+        return LIIF()

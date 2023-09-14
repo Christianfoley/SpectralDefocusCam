@@ -1,20 +1,23 @@
 # example config for training
 
 # data paths
-checkpoints_dir: "checkpoints/dir/here"
-psf_dir: "psfs/dir/here" # unused if sim_blur = True
-base_data_path: "data/dir/here"
-false_color_mat_path: "data/dir/here"
+checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
+psf_dir: "" # unused if sim_blur : True
+base_data_path: "/home/cfoley_waller/defocam/defocuscamdata/sample_data"
+false_color_mat_path: "/home/cfoley_waller/defocam/SpectralDefocusCam/utils/false_color_calib.mat"
+mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat"
 
 # model params
-device: 2
+device: 1
 forward_model_params:
   stack_depth: 3
   sim_blur: True
   optimize_blur: False
   blur_type: "symmetric"
+  apply_adjoint: True
+  spectral_pad_output: False
 recon_model_params:
-  model_name: "unet" #"lcnf"
+  model_name: "lcnf"
   # unet params
 
   # lcnf params
@@ -37,27 +40,31 @@ recon_model_params:
     angle_num: 12
 
 # training params
-epochs: 2
-batch_size: 16
-data_partition: [0.85,0.15,0] #train,val,test
+epochs: 600
+batch_size: 1
+patch_size: [128, 128]
+num_workers: 4
+data_partition: [0.02,0.02,0.96] #train,val,test
 early_stopping_patience: 10
-checkpoint_stride: 15
 loss_function: 
-  name: "mse" # mse, mae, cossim, lpips, psnr, ssim
+  name: "mae" # mse, mae, cossim, lpips, psnr, ssim
   params: 
 optimizer: 
   name: "adam" #adam, sgd, adagrad, rmsprop
   params: #kwargs
-    lr: 0.0008
-    weight_decay: 0.01
-    momentum: 0.8
+    lr: 0.0001
+    weight_decay: 0
 lr_scheduler: 
-  name: "warm_cosine_anneal" # exponential, plateau
+  name: "exponential" # warm_cosine_anneal, exponential, plateau
   params: 
-    T_0: 30
-    T_mult: 1.1
+    gamma: 0.99
 
 # restarting from checkpoint
 preload_weights: False
 checkpoint_dir: "your/weights/here.pt"
 offset: 0
+
+#other params
+log_grads: True
+validation_stride: 1
+checkpoint_stride: 10

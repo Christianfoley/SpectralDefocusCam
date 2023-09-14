@@ -9,9 +9,10 @@ import numpy as np
 import random as rand
 import os
 import glob
+import time
 
 
-def get_data(batch_size, data_split, base_path, workers=1):
+def get_data(batch_size, data_split, base_path, patch_size=(256, 256), workers=1):
     assert os.path.exists(base_path), "base data path does not exist"
     pavia = glob.glob(os.path.join(base_path, "paviadata/Pavia*.mat"))
     fruitset_pca = glob.glob(os.path.join(base_path, "fruitdata/pca/*.mat"))
@@ -23,7 +24,7 @@ def get_data(batch_size, data_split, base_path, workers=1):
         pavia,
         transforms.Compose(
             [
-                subImageRand(),
+                subImageRand(patch_size),
                 chooseSpectralBands(interp=True),
             ]
         ),
@@ -36,6 +37,7 @@ def get_data(batch_size, data_split, base_path, workers=1):
             [
                 readCompressed(),
                 Resize(),
+                subImageRand(patch_size),
                 chooseSpectralBands(),
             ]
         ),
@@ -46,6 +48,7 @@ def get_data(batch_size, data_split, base_path, workers=1):
         transforms.Compose(
             [
                 Resize(),
+                subImageRand(patch_size),
                 chooseSpectralBands(),
             ]
         ),
@@ -94,6 +97,8 @@ class SpectralWrapper(Dataset):
         self.test_transform = test_transform
         # print('datasets:', self.datasets, '\n', 'lengths:', self.lengths, '\n', 'totallength:', self.length)
 
+        self.readtime = 0
+
     def __getitem__(self, index):
         if index >= self.length:
             raise IndexError(f"{index} exceeds {self.length}")
@@ -107,6 +112,8 @@ class SpectralWrapper(Dataset):
         sample = self.datasets[i].__getitem__(index)
         if self.transform:
             sample = self.transform(sample)
+
+        self.readtime += sum([ds.readtime for ds in self.datasets])
         return sample
 
     def __len__(self):
@@ -160,15 +167,21 @@ class SpectralDataset(Dataset):
         self.tag = tag
         # possible tags: ['ref','cspaces','header', 'wc', 'pcc', 'pavia']
 
+        self.readtime = 0
+
     def __len__(self):
         return len(self.img_dirs)
 
     # if transform uses subImageRand, you can call the same item over and over
     def __getitem__(self, idx):
         if self.tag == None:
+            start = time.time()
             image = scipy.io.loadmat(self.img_dirs[idx])
+            self.readtime += time.time() - start
         elif type(self.tag) == list:
+            start = time.time()
             dict = scipy.io.loadmat(self.img_dirs[idx])
+            self.readtime += time.time() - start
             for subtag in self.tag:
                 if subtag in dict:
                     image = dict[subtag]

@@ -13,20 +13,20 @@ class Forward_Model(torch.nn.Module):
     def __init__(
         self,
         mask,  # mask: response matrix for the spectral filter array
-        num_ims=2,  # number of blurred images to simulate
+        params,  # hyperparams related to forward model funciton (num ims, channels, padding, etc)
         w_init=None,  # initialization for the blur kernels e.g., w_init = [.01, 0.01]
         cuda_device=0,  # cuda device parameter
-        blur_type="symmetric",  # symmetric or asymmetric blur kernel
-        optimize_blur=False,  # choose whether to learn the best blur or not (warning, not stable)
-        simulate_blur=True,
         psf_dir=None,
     ):  # simulate blur or specify psf
         super(Forward_Model, self).__init__()
+        self.num_ims = params["stack_depth"]
+        self.blur_type = params["blur_type"]
+        self.optimize_blur = params["optimize_blur"]
+        self.simulate_blur = params["sim_blur"]
+        self.apply_adjoint = params["apply_adjoint"]
+        self.pad = params["spectral_pad_output"]
+
         self.cuda_device = cuda_device
-        self.blur_type = blur_type
-        self.num_ims = num_ims
-        self.optimize_blur = optimize_blur
-        self.simulate_blur = simulate_blur
         self.psf_dir = psf_dir
         self.psfs = None
 
@@ -39,10 +39,10 @@ class Forward_Model(torch.nn.Module):
         if w_init is None:  # if no blur specified, use default
             if self.blur_type == "symmetric":
                 w_init = np.linspace(
-                    0.002, 0.035, num_ims
+                    0.002, 0.035, self.num_ims
                 )  # sharp bound, blurry bound: (deflt:.002,0.035)
             else:
-                w_init = np.linspace(0.002, 0.01, num_ims)
+                w_init = np.linspace(0.002, 0.01, self.num_ims)
                 w_init = np.repeat(np.array(w_init)[np.newaxis], self.num_ims, axis=0).T
                 w_init[:, 1] *= 0.5
 
@@ -54,7 +54,7 @@ class Forward_Model(torch.nn.Module):
                     self.w_init,
                     dtype=torch.float32,
                     device=self.cuda_device,
-                    requires_grad=optimize_blur,
+                    requires_grad=self.optimize_blur,
                 )
             )
         else:
@@ -64,7 +64,7 @@ class Forward_Model(torch.nn.Module):
                     self.w_init,
                     dtype=torch.float32,
                     device=self.cuda_device,
-                    requires_grad=optimize_blur,
+                    requires_grad=self.optimize_blur,
                 )
             )
 
@@ -80,7 +80,7 @@ class Forward_Model(torch.nn.Module):
         self.mask_var = torch.tensor(
             self.mask, dtype=torch.float32, device=self.cuda_device
         ).unsqueeze(0)
-        self.psf = np.empty((num_ims, self.DIMS0, self.DIMS1))
+        self.psf = np.empty((self.num_ims, self.DIMS0, self.DIMS1))
 
     def init_psfs(self):
         if self.simulate_blur:
@@ -132,19 +132,42 @@ class Forward_Model(torch.nn.Module):
 
     def Hadj(self, sim_meas):
         Hconj = torch.conj(fft_psf(self, self.psfs))
-        sm = pad_zeros_torch(self, sim_meas.unsqueeze(2) * self.mask_var)
+        sm = pad_zeros_torch(self, sim_meas * self.mask_var)
         sm_fourier = fft_im(sm)
         adj_meas = torch.fft.ifft2(Hconj * sm_fourier).real
         return adj_meas
 
+    def spectral_pad(self, x, spec_dim=2, size=-1):
+        spec_channels = x.shape[spec_dim]
+        padsize = 0
+        while spec_channels & (spec_channels - 1) != 0:
+            spec_channels += 1
+            padsize += 1
+        padsize = size if size >= 0 else padsize
+        return F.pad(
+            x, (0, 0, 0, 0, padsize // 2, padsize // 2 + padsize % 2), "constant", 0
+        )
+
     # forward call for the model
-    def forward(self, in_image, sim):
-        # init psfs if not or dynamic blur
+    def forward(self, in_image):
         self.init_psfs()
-        if sim:
+
+        # simulate camera measurements (or not)
+        if self.simulate_blur:
             self.Xi = fft_im(my_pad(self, in_image)).unsqueeze(0)
-            self.sim_meas = self.Hfor()
+            self.sim_output = self.Hfor()
         else:
-            self.sim_meas = in_image
-        final_output = crop_forward(self, self.Hadj(self.sim_meas))
-        return final_output
+            self.sim_output = in_image
+
+        # spawn a channel dimension
+        self.sim_output = self.sim_output.unsqueeze(2)
+
+        # apply the adjoint (or not)
+        if self.apply_adjoint:
+            self.sim_output = crop_forward(self, self.Hadj(self.sim_output))
+
+        # pad to power of two if specified
+        if self.pad:
+            self.sim_output = self.spectral_pad(self.sim_output, spec_dim=2, size=2)
+
+        return self.sim_output

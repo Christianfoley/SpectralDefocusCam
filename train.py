@@ -15,42 +15,52 @@ import utils.helper_functions as helper
 import utils.optimizer_utils as optim_utils
 
 import data_utils.dataset as ds
-import models_learning.spectral_model as sm
+import models_learning.ensemble as ensemble
 import models_learning.forward as fm
 import sys
 
 sys.path.append("..")
 
-import models_learning.unet3d as Unet3d
+import models_learning.Unet.unet3d as Unet3d
+import models_learning.LCNF.liif as liif
+
+# don't delete: registering
+import models_learning.LCNF.edsr
+import models_learning.LCNF.mlp
 
 
 def get_model(config, device):
+    fm_params = config["forward_model_params"]
+    rm_params = config["recon_model_params"]
+    rm_params["num_measurements"] = fm_params["stack_depth"]
+
     # forward model
-    mask = load_mask()
+    mask = load_mask(config["mask_dir"], config["patch_size"])
     forward_model = fm.Forward_Model(
         mask,
-        num_ims=config["stack_depth"],
-        blur_type=config["blur_type"],
-        optimize_blur=config["optimize_blur"],
-        simulate_blur=config["sim_blur"],
+        params=fm_params,
+        cuda_device=device,
         psf_dir=config["psf_dir"],
     )
 
-    # reconstruction model
-    recon_model = Unet3d.Unet(n_channel_in=config["stack_depth"], n_channel_out=1)
+    # recon model
+    if rm_params["model_name"] == "unet":
+        recon_model = Unet3d.Unet(n_channel_in=rm_params["num_measurements"])
+    elif rm_params["model_name"] == "lcnf":
+        encoder_specs = [rm_params["encoder_specs"]] * rm_params["num_measurements"]
+        recon_model = liif.LIIF(
+            encoder_specs,
+            rm_params["imnet_spec"],
+            rm_params["enhancements"],
+        )
 
-    return sm.MyEnsemble(forward_model.to(device), recon_model.to(device))
+    return ensemble.MyEnsemble(forward_model.to(device), recon_model.to(device))
 
 
 def get_save_folder(config):
     # specify training checkpoints
-    args_dict = {
-        "version": "4",
-        "number_measurements": config["stack_depth"],
-        "sim_blur": config["sim_blur"],
-        "blur_type": config["blur_type"],
-        "optimize_blur": config["optimize_blur"],
-    }
+    args_dict = {"version": "4"}
+    args_dict.update(config["forward_model_params"])
     save_folder = os.path.join(
         config["checkpoints_dir"],
         "checkpoint_" + "_".join(map(str, list(args_dict.values()))) + "/",
@@ -67,8 +77,10 @@ def evaluate(model, dataloader, loss_function, device):
     model.eval()
     val_loss = 0
     sample_np = None
+    adjoint_np = None
     for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
         sample_np = sample["image"].numpy()[0]
+        adjoint_np = model.output1.detach().cpu().numpy()
         output = model(sample["image"].to(device))  # Compute the output image
         loss = loss_function(output, sample["image"].to(device))  # Compute the loss
         val_loss += loss.item()
@@ -77,32 +89,43 @@ def evaluate(model, dataloader, loss_function, device):
     test_np = output.detach().cpu().numpy()[0]
 
     model.train()
-    return val_loss, test_np, sample_np
+    return val_loss, test_np, sample_np, adjoint_np
 
 
-def generate_plot(test, gt, fc_scaling=[0.9, 0.74, 1.12]):
+def generate_plot(test, gt, intermediate, opt_path, fc_scaling=[0.9, 0.74, 1.12]):
     """
     Generate a plot of recon next to ground truth in false color. Also plots
     a random pixel spectral response from the gt and test
     """
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    fig, ax = plt.subplots(1, 4, figsize=(20, 5))
 
-    pred_fc = helper.stack_rgb_opt_30(test.transpose(1, 2, 0), scaling=fc_scaling)
-    samp_fc = helper.stack_rgb_opt_30(gt.transpose(1, 2, 0), scaling=fc_scaling)
+    adjoint_fc = pred_fc = helper.stack_rgb_opt_30(
+        intermediate[0, 0].transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
+    )
+    pred_fc = helper.stack_rgb_opt_30(
+        test.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
+    )
+    samp_fc = helper.stack_rgb_opt_30(
+        gt.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
+    )
+    adjoint_fc = helper.value_norm(adjoint_fc)
     pred_fc = helper.value_norm(pred_fc)
     samp_fc = helper.value_norm(samp_fc)
 
-    ax[0].imshow(pred_fc)
-    ax[0].set_title("reconstructed")
+    ax[0].imshow(adjoint_fc)
+    ax[0].set_title("adjoint")
 
-    ax[1].imshow(samp_fc)
-    ax[1].set_title("ground truth")
+    ax[1].imshow(pred_fc)
+    ax[1].set_title("reconstructed")
+
+    ax[2].imshow(samp_fc)
+    ax[2].set_title("ground truth")
 
     y = np.random.randint(0, test.shape[1])
     x = np.random.randint(0, test.shape[2])
-    ax[2].plot(test[:, y, x], color="red", label="prediction")
-    ax[2].plot(gt[:, y, x], color="blue", label="ground_truth")
-    ax[2].set_title(f"spectral response: pixel {(y,x)}")
+    ax[3].plot(test[:, y, x], color="red", label="prediction")
+    ax[3].plot(gt[:, y, x], color="blue", label="ground_truth")
+    ax[3].set_title(f"spectral response: pixel {(y,x)}")
     plt.legend()
     plt.tight_layout()
 
@@ -129,9 +152,11 @@ def run_training(
     writer = SummaryWriter(log_dir=save_folder)
     helper.write_yaml(config, os.path.join(save_folder, "training_config.yml"))
 
+    print(f"Readtime: {train_dataloader.dataset.readtime}")
     w_list = []
     val_loss_list = []
     train_loss_list = []
+    logged_graph = False
     for i in tqdm.tqdm(range(config["epochs"]), desc="Epochs", position=0):
         dl_time = 0
         inf_time = 0
@@ -156,7 +181,7 @@ def run_training(
             loss.backward()
             optimizer.step()
 
-            # Enforce a physical constraint on the parameters
+            # Enforce a physical constraint on the blur parameters
             if model.model1.optimize_blur:
                 model.model1.w_blur.data = torch.clip(
                     model.model1.w_blur.data, 0.0006, 1
@@ -170,14 +195,19 @@ def run_training(
 
         # running validation
         if i % config["validation_stride"] == 0:
-            val_loss, test_np, ground_truth_np = evaluate(
+            val_loss, test_np, ground_truth_np, intermediate = evaluate(
                 model, val_dataloader, loss_function, device=device
             )
             val_loss_list.append(val_loss)
             print(f"\nEpoch ({i}) losses  (train, val) : ({train_loss}, {val_loss})")
 
             if plot:
-                fig = generate_plot(test_np, ground_truth_np)
+                fig = generate_plot(
+                    test_np,
+                    ground_truth_np,
+                    intermediate,
+                    opt_path=config["false_color_mat_path"],
+                )
                 writer.add_figure(f"epoch_{i}_fig", fig)
             early_stopper(val_loss=val_loss, model=model, epoch=i)
         else:
@@ -192,7 +222,7 @@ def run_training(
                     f"saved_model_ep{str(i + config['offset'])}_testloss_{str(val_loss)}.pt",
                 ),
             )
-
+        print(f"Readtime: {train_dataloader.dataset.readtime}")
         print(f"Dataloading time: {dl_time:.2f}s, Inference time: ", end="")
         print(f"{inf_time:.2f}s, Backprop Time: {prop_time:.2f}s\n")
 
@@ -200,12 +230,18 @@ def run_training(
         writer.add_scalar("train loss", train_loss_list[-1], global_step=i)
         writer.add_scalar("validation loss", val_loss_list[-1], global_step=i)
         writer.add_scalar("learning rate", optim_utils.get_lr(optimizer), global_step=i)
-        for name, param in model.named_parameters():
-            writer.add_histogram(f"{name} grad", param.grad, global_step=i)
-            writer.add_histogram(f"{name} weight", param.weight, global_step=i)
+        if not logged_graph:
+            writer.add_graph(model, sample["image"].to(device), verbose=False)
+            logged_graph = True
+
+        # Getting some error when adding a histogram. Using a scalar to log for now
+        if config.get("log_grads", False):
+            mean_np = lambda x: np.mean(x.detach().cpu().numpy())
+            for name, param in model.named_parameters():
+                writer.add_scalar(f"{name} grad", mean_np(param.grad), global_step=i)
+                writer.add_scalar(f"{name} weight", mean_np(param.data), global_step=i)
 
         # early stopping
-
         if early_stopper.early_stop:
             print("\t Stopping early...")
 
@@ -233,14 +269,12 @@ def run_training(
 def main(config):
     start = time.time()
     # setup device
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
     print("Num devices: ", torch.cuda.device_count())
     device = helper.get_device(config["device"])
-    print("Trying device: ", torch.cuda.get_device_properties(device).name)
     try:
+        print("Trying device: ", torch.cuda.get_device_properties(device).name)
         device = torch.device(device)
     except Exception as e:
         print(f"Failed to select device {device}: {e}")
@@ -253,6 +287,7 @@ def main(config):
         config["batch_size"],
         config["data_partition"],
         config["base_data_path"],
+        config["patch_size"],
         config["num_workers"],
     )
     print(

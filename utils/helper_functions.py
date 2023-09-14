@@ -130,7 +130,7 @@ def stack_rgb_opt_30(
     reflArray,
     channels=30,
     offset=0,
-    opt="utils/false_color_calib.mat",
+    opt=None,
     scaling=[1, 1, 2.5],
 ):
     color_dict = scipy.io.loadmat(opt)
@@ -164,6 +164,8 @@ def stack_rgb_opt(
     opt="utils/false_color_calib.mat",
     scaling=[1, 1, 2.5],
 ):
+    if not opt:
+        opt = "utils/false_color_calib.mat"
     color_dict = scipy.io.loadmat(opt)
     red = color_dict["red"]
     green = color_dict["green"]

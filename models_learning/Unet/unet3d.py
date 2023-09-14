@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models_learning.modules3d import ConvBlock
+from models_learning.Unet.modules3d import ConvBlock
 
 
 class Unet(nn.Module):
@@ -102,4 +102,4 @@ class Unet(nn.Module):
 
         if self.residual:
             x = torch.add(x, self.convres(c0))
-        return x
+        return x[:, 0, ...]  # remove image dimension
