@@ -2,23 +2,33 @@
 
 # data paths
 checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
-psf_dir: "" # unused if sim_blur : True
+psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/psfs_9_22_2023_noiseavg32"
 base_data_path: "/home/cfoley_waller/defocam/defocuscamdata/sample_data"
 false_color_mat_path: "/home/cfoley_waller/defocam/SpectralDefocusCam/utils/false_color_calib.mat"
-mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat"
+mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_9_22_2023_exp0.5ms_378-890/calibration_matrix.mat"
 
 # model params
-device: 1
+device: 2
 forward_model_params:
   stack_depth: 3
-  sim_blur: True
+  sim_blur: False
+  sim_meas: True
   optimize_blur: False
   blur_type: "symmetric"
   apply_adjoint: True
-  spectral_pad_output: False
+  spectral_pad_output: True
 recon_model_params:
-  model_name: "lcnf"
-  # unet params
+  model_name: "unet"
+
+  # fista params
+  iters: 500
+  prox_method: 'tv' #'native' for native sparsity, 'non-neg' for non-negativity
+  tv_lambda: .003
+  tv_lambdaw: 0.01
+  lowrank_lambda: 0.00005
+
+  # r2attn unet params
+  recurrence_t: 2
 
   # lcnf params
   encoder_specs:
@@ -41,18 +51,18 @@ recon_model_params:
 
 # training params
 epochs: 600
-batch_size: 1
-patch_size: [128, 128]
+batch_size: 3
+patch_size: [256, 256]
 num_workers: 6
 data_partition: [0.7,0.15,0.15] #train,val,test
-early_stopping_patience: 10
+early_stopping_patience: 30
 loss_function: 
-  name: "mae" # mse, mae, cossim, lpips, psnr, ssim
+  name: "mse" # mse, mae, cossim, lpips, psnr, ssim
   params: 
 optimizer: 
   name: "adam" #adam, sgd, adagrad, rmsprop
   params: #kwargs
-    lr: 0.0001
+    lr: 0.00001
     weight_decay: 0
 lr_scheduler: 
   name: "exponential" # warm_cosine_anneal, exponential, plateau
@@ -65,6 +75,6 @@ checkpoint_dir: "your/weights/here.pt"
 offset: 0
 
 #other params
-log_grads: True
+log_grads: False
 validation_stride: 1
 checkpoint_stride: 10

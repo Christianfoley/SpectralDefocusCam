@@ -11,6 +11,8 @@ def get_optimizer(model, name, kwparams):
         optimizer = optim.SGD
     elif name == "adam":
         optimizer = optim.Adam
+    elif name == "adamw":
+        optimizer = optim.AdamW
     elif name == "adagrad":
         optimizer = optim.Adagrad
     elif name == "rmsprop":

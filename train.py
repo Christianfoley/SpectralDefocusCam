@@ -15,18 +15,21 @@ import utils.helper_functions as helper
 import utils.optimizer_utils as optim_utils
 
 import data_utils.dataset as ds
-import models_learning.ensemble as ensemble
-import models_learning.forward as fm
+import data_utils.precomp_dataset as pre_ds
+import models.ensemble as ensemble
+import models.forward as fm
 import sys
 
 sys.path.append("..")
 
-import models_learning.Unet.unet3d as Unet3d
-import models_learning.LCNF.liif as liif
+import models.Unet.unet3d as Unet3d
+import models.Unet.R2attunet as R2attunet3d
+import models.LCNF.liif as liif
+import models.fista.fista_spectral_cupy_batch as fista
 
 # don't delete: registering
-import models_learning.LCNF.edsr
-import models_learning.LCNF.mlp
+import models.LCNF.edsr
+import models.LCNF.mlp
 
 
 def get_model(config, device):
@@ -42,28 +45,37 @@ def get_model(config, device):
         cuda_device=device,
         psf_dir=config["psf_dir"],
     )
+    forward_model.init_psfs()
 
     # recon model
-    if rm_params["model_name"] == "unet":
-        recon_model = Unet3d.Unet(n_channel_in=rm_params["num_measurements"])
+    if rm_params["model_name"] == "fista":
+        recon_model = fista.fista_spectral_numpy(
+            forward_model.psfs, torch.tensor(mask), params=rm_params, device=device
+        )
+    elif rm_params["model_name"] == "unet":
+        recon_model = Unet3d.Unet(n_channel_in=rm_params["num_measurements"]).to(device)
+    elif rm_params["model_name"] == "r2attunet":
+        recon_model = R2attunet3d.R2AttUnet(
+            in_ch=rm_params["num_measurements"],
+            t=rm_params.get("recurrence_t", 2).to(device),
+        )
     elif rm_params["model_name"] == "lcnf":
         encoder_specs = [rm_params["encoder_specs"]] * rm_params["num_measurements"]
         recon_model = liif.LIIF(
             encoder_specs,
             rm_params["imnet_spec"],
             rm_params["enhancements"],
-        )
+        ).to(device)
 
-    return ensemble.MyEnsemble(forward_model.to(device), recon_model.to(device))
+    return ensemble.MyEnsemble(forward_model.to(device), recon_model)
 
 
 def get_save_folder(config):
     # specify training checkpoints
-    args_dict = {"version": "4"}
-    args_dict.update(config["forward_model_params"])
+    config_filename = os.path.basename(config["config_fname"])
     save_folder = os.path.join(
         config["checkpoints_dir"],
-        "checkpoint_" + "_".join(map(str, list(args_dict.values()))) + "/",
+        f"checkpoint_{config_filename}",
         helper.get_now(),
     )
 
@@ -283,13 +295,21 @@ def main(config):
 
     # init data and model
     print("Loading data...", end="")
-    train_loader, val_loader, test_loader = ds.get_data(
-        config["batch_size"],
-        config["data_partition"],
-        config["base_data_path"],
-        config["patch_size"],
-        config["num_workers"],
-    )
+    if config["forward_model_params"]["sim_meas"]:
+        train_loader, val_loader, test_loader = ds.get_data(
+            config["batch_size"],
+            config["data_partition"],
+            config["base_data_path"],
+            config["patch_size"],
+            config["num_workers"],
+        )
+    else:
+        train_loader, val_loader, test_loader = pre_ds.get_data_precomputed(
+            config["batch_size"],
+            config["precomp_meas_path"],
+            config["patch_size"],
+            config["num_workers"],
+        )
     print(
         f"Done! {len(train_loader)} training samples, {len(val_loader)} validation samples"
     )

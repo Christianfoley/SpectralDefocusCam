@@ -2,12 +2,6 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 import torch.optim
-import torch.nn as nn
-from PIL import Image
-import skimage
-import skimage.transform
-import glob
-import matplotlib.pyplot as plt
 import scipy.io
 
 
@@ -43,12 +37,19 @@ def tt(x, device="cuda:0"):
 def load_mask(
     path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
     patch_size=[256, 256],
+    old_calibration=False,
 ):
     spectral_mask = scipy.io.loadmat(path)
     mask = spectral_mask["mask"]
     mask = mask[100 : 100 + patch_size[0], 100 : 100 + patch_size[1], :-1]
-    mask = (mask[..., 0::2] + mask[..., 1::2]) / 2
-    mask = mask[..., 0:30]
+
+    if old_calibration:  # weird things about models trained with calibration matrix
+        mask = (mask[..., 0::2] + mask[..., 1::2]) / 2
+        mask = mask[..., 0:30]
+    else:
+        mask = mask[..., 0:60:2]
+        # normalize
+        mask = (mask - np.min(mask)) / (np.max(mask - np.min(mask)))
     return mask
 
 

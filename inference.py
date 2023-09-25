@@ -8,12 +8,12 @@ from utils.diffuser_utils import *
 import utils.helper_functions as helper
 import utils.metrics as metrics
 import data_utils.dataset as ds
-import models_learning.ensemble as ensemble
-import models_learning.forward as fm
+import models.ensemble as ensemble
+import models.forward as fm
 
 sys.path.append("..")
 
-import models_learning.Unet.unet3d as Unet3d
+import models.Unet.unet3d as Unet3d
 
 
 def get_model_pretrained(weights, train_config, device):

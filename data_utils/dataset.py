@@ -12,24 +12,36 @@ import glob
 import time
 
 
-def get_data(batch_size, data_split, base_path, patch_size=(256, 256), workers=1):
+def get_data(
+    batch_size,
+    data_split,
+    base_path,
+    patch_size=(256, 256),
+    workers=1,
+    apply_rand_aug=True,
+):
     assert os.path.exists(base_path), "base data path does not exist"
-    pavia = glob.glob(os.path.join(base_path, "paviadata/Pavia*.mat"))
+    # pavia = glob.glob(os.path.join(base_path, "paviadata/Pavia*.mat"))
+    pavia_chunked = glob.glob(os.path.join(base_path, "paviadata_chunked/Pavia*.mat"))
     fruitset_pca = glob.glob(os.path.join(base_path, "fruitdata/pca/*.mat"))
     harvard = glob.glob(os.path.join(base_path, "harvard/CZ_hsdb/*.mat"))
     harvard_indoor = glob.glob(os.path.join(base_path, "harvard/CZ_hsdbi/*.mat"))
 
     # load pavia images (validation set)
     pavia_data = SpectralDataset(
-        pavia,
+        pavia_chunked,
         transforms.Compose(
             [
+                Resize(),
                 subImageRand(patch_size),
                 chooseSpectralBands(interp=True),
             ]
+            if apply_rand_aug
+            else [Resize(), chooseSpectralBands(interp=True)]
         ),
         tag=["paviaU", "pavia"],
     )
+
     # load giessen images
     fruit_data = SpectralDataset(
         fruitset_pca,
@@ -38,6 +50,12 @@ def get_data(batch_size, data_split, base_path, patch_size=(256, 256), workers=1
                 readCompressed(),
                 Resize(),
                 subImageRand(patch_size),
+                chooseSpectralBands(),
+            ]
+            if apply_rand_aug
+            else [
+                readCompressed(),
+                Resize(),
                 chooseSpectralBands(),
             ]
         ),
@@ -51,6 +69,11 @@ def get_data(batch_size, data_split, base_path, patch_size=(256, 256), workers=1
                 subImageRand(patch_size),
                 chooseSpectralBands(),
             ]
+            if apply_rand_aug
+            else [
+                Resize(),
+                chooseSpectralBands(),
+            ]
         ),
         tag="ref",
     )
@@ -62,6 +85,11 @@ def get_data(batch_size, data_split, base_path, patch_size=(256, 256), workers=1
             [
                 Normalize(),
                 RandFlip(),
+                toTensor(),
+            ]
+            if apply_rand_aug
+            else [
+                Normalize(),
                 toTensor(),
             ]
         ),
@@ -242,7 +270,7 @@ class chooseSpectralBands(object):
 
 class toTensor(object):
     """
-    automatically performs the numpy-pytorch tensor transpose. outputs a tensor
+    performs the numpy-pytorch tensor transpose. outputs a tensor
     of the sample image
     """
 

@@ -121,6 +121,40 @@ def get_psfs(
     return out
 
 
+def get_psfs_dmm_37ux178(
+    psf_dir="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/psfs_9_22_2023_noiseavg32",
+    ext=".bmp",
+    scale=False,
+    center_crop_width=120,
+    crop_shape="square",
+    usefirst=False,
+    blurstride=1,
+):
+    psfs = []
+    filenames = glob.glob(os.path.join(psf_dir, "*" + ext))
+    filenames.sort()
+    filenames = filenames[::blurstride]
+
+    # open and convert to numpy
+    psfs = [np.array(Image.open(file)) for file in filenames]
+
+    # if specified, crop all psfs to center of the in-focus psf
+    offset = None
+    if usefirst:
+        _, offset = center_crop_psf(psfs[0], center_crop_width)
+
+    # crop with offset
+    if center_crop_width > 0:
+        psfs = [
+            center_crop_psf(psf, center_crop_width, crop_shape, offset)[0]
+            for psf in psfs
+        ]
+    if scale:
+        psfs = [psf / 255 for psf in psfs]
+
+    return psfs
+
+
 def get_psfs_new(
     psf_dir="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/new_camera_psfs",
     ext=".png",
@@ -141,7 +175,7 @@ def get_psfs_new(
     # open and convert to numpy
     psfs = [np.array(Image.open(psf)) for psf in psfs]
     if center_crop_width > 0:
-        psfs = [center_crop_psf(psf, center_crop_width) for psf in psfs]
+        psfs = [center_crop_psf(psf, center_crop_width)[0] for psf in psfs]
     if scale:
         psfs = [psf / 255 for psf in psfs]
 
@@ -156,14 +190,24 @@ def get_circular_kernel(diameter):
     return kernel
 
 
-def center_crop_psf(psf, width, plot=False, shape="square"):
-    # blur for more accurate center
-    kernel = get_circular_kernel(7)
-    psf_conv = signal.correlate(psf, kernel, mode="same")
+def center_crop_psf(psf, width, shape="square", center_offset=None):
+    # pad to allow larger crop
+    padding = (
+        (psf.shape[0] // 2, psf.shape[0] // 2),
+        (psf.shape[1] // 2, psf.shape[1] // 2),
+    )
+    psf = np.pad(psf, padding, mode="median")
 
-    # get coords of max
-    max_index = np.argmax(psf_conv)
-    max_coords = np.unravel_index(max_index, psf.shape)
+    if center_offset is None:
+        # blur for more accurate center
+        kernel = get_circular_kernel(7)
+        psf_conv = signal.correlate(psf, kernel, mode="same")
+
+        # get coords of max
+        max_index = np.argmax(psf_conv)
+        max_coords = np.unravel_index(max_index, psf.shape)
+    else:
+        max_coords = center_offset
 
     # crop around max (always returns even, favors left&above)
     square_crop = psf[
@@ -173,9 +217,9 @@ def center_crop_psf(psf, width, plot=False, shape="square"):
     circle_crop = np.multiply(get_circular_kernel(width), square_crop)
 
     if shape == "square":
-        return square_crop
+        return square_crop, max_coords
     elif shape == "circle":
-        return circle_crop
+        return circle_crop, max_coords
     else:
         raise AssertionError("unhandled crop shape")
 
@@ -204,36 +248,27 @@ def center_pad_to_shape(psfs, shape, val=0):
     return psfs
 
 
-def get_psf_stack(psfs, plot=False):
-    selected = psfs[0:3]
-    selected = [one_normalize(sel) for sel in selected]
+def get_psf_stack(psf_dir, num_ims, mask_shape):
+    # Psfs for old viavi and basler cameras
+    # psfs = get_psfs(psf_dir)
+    # psfs = get_psfs_new(psf_dir)
 
-    widths = [120, 120, 120]
-    cropped_psfs = [
-        center_crop_psf(sel, width=widths[i], shape="circle")
-        for i, sel in enumerate(selected)
-    ]
-
-    stack_xy_shape = (max(widths), max(widths))
-    cropped_psfs = np.array(
-        [
-            center_pad_to_shape(np.expand_dims(psf, 0), stack_xy_shape)
-            for psf in cropped_psfs
-        ]
+    stack_xy_shape = mask_shape[1:]
+    psfs = get_psfs_dmm_37ux178(
+        psf_dir,
+        center_crop_width=min(stack_xy_shape),
+        crop_shape="square",
+        usefirst=True,
+        blurstride=1,
     )
 
-    if plot:
-        fig, ax = plt.subplots(1, 3, figsize=(21, 7))
-        plt.suptitle("selected psfs")
-        for i in range(len(selected)):
-            ax[i].imshow(selected[i])
-        plt.show()
+    # normalize and pad
+    psfs = psfs[0:num_ims]
+    psfs = [one_normalize(sel) for sel in psfs]
 
-        fig, ax = plt.subplots(1, 3, figsize=(21, 7))
-        plt.suptitle("cropped_psfs")
-        for i, psf in enumerate(cropped_psfs):
-            ax[i].imshow(psf)
-        plt.show()
+    psfs = np.array(
+        [center_pad_to_shape(np.expand_dims(psf, 0), stack_xy_shape) for psf in psfs]
+    )
 
     # return reformatted shape (current: z,y,x,? -> desired: z,y,x)
-    return np.transpose(cropped_psfs[..., 0, :, :], (0, 1, 2))
+    return np.transpose(psfs[..., 0, :, :], (0, 1, 2))
