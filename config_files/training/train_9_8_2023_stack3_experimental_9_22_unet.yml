@@ -17,6 +17,7 @@ forward_model_params:
   blur_type: "symmetric"
   apply_adjoint: True
   spectral_pad_output: True
+  subsample_adjoint: 1
 recon_model_params:
   model_name: "unet"
 

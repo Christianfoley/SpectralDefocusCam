@@ -11,6 +11,8 @@ import os
 import glob
 import time
 
+from data_utils.preprocess_data import read_compressed
+
 
 def get_data(
     batch_size,
@@ -21,7 +23,6 @@ def get_data(
     apply_rand_aug=True,
 ):
     assert os.path.exists(base_path), "base data path does not exist"
-    # pavia = glob.glob(os.path.join(base_path, "paviadata/Pavia*.mat"))
     pavia_chunked = glob.glob(os.path.join(base_path, "paviadata_chunked/Pavia*.mat"))
     fruitset_pca = glob.glob(os.path.join(base_path, "fruitdata/pca/*.mat"))
     harvard = glob.glob(os.path.join(base_path, "harvard/CZ_hsdb/*.mat"))
@@ -103,11 +104,15 @@ def get_data(
     train, val, test = all_data.partition(*data_split)
 
     # make dataloaders for pytorch
-    train_dataloader = DataLoader(train, batch_size, shuffle=True, num_workers=workers)
-    val_dataloader = DataLoader(val, batch_size, shuffle=True, num_workers=workers)
-    test_dataloader = DataLoader(test, batch_size)
+    train_loader, val_loader, test_loader = None, None, None
+    if data_split[0] > 0:
+        train_loader = DataLoader(train, batch_size, shuffle=True, num_workers=workers)
+    if data_split[1] > 0:
+        val_loader = DataLoader(val, batch_size, shuffle=True, num_workers=workers)
+    if data_split[2] > 0:
+        test_loader = DataLoader(test, batch_size)
 
-    return train_dataloader, val_dataloader, test_dataloader
+    return train_loader, val_loader, test_loader
 
 
 class SpectralWrapper(Dataset):
@@ -264,6 +269,8 @@ class chooseSpectralBands(object):
         self.interp = interp
 
     def __call__(self, sample):
+        if self.interp:
+            pass
         sample["image"] = sample["image"][..., self.bands[0] : self.bands[1]]
         return sample
 
@@ -302,7 +309,7 @@ class subImageRand(object):
         height, width, channels = shape[0], shape[1], shape[2]
         xRand = rand.randint(0, max(height - self.output_size[0], 0))
         yRand = rand.randint(0, max(width - self.output_size[1], 0))
-
+        print(f"calling subimage: {xRand, yRand, self.output_size}")
         sample["image"] = sample["image"][
             xRand : (xRand + self.output_size[0]),
             yRand : (yRand + self.output_size[1]),
@@ -317,13 +324,5 @@ class readCompressed(object):
     """
 
     def __call__(self, sample):
-        # get decompress image (image is a .mat file of pca compressed data)
-        im = sample["image"]
-        wc, pcc, wid, hei = im["wc"], im["pcc"], im["wid"], im["hei"]
-        spectra = np.matmul(pcc, np.transpose(wc))
-
-        # [:,:,None] makes 2d np array into 3d np array
-        sample["image"] = np.reshape(
-            np.transpose(spectra)[:, :, None], (wid[0][0], hei[0][0], len(spectra))
-        )
+        sample["image"] = read_compressed(sample["image"])
         return sample

@@ -42,9 +42,7 @@ def evaluate(model, dataloader, loss_function, device):
     model.eval()
     test_loss = 0
     sample_np = None
-    for i, sample in enumerate(dataloader):
-        helper.show_progress_bar(dataloader, i, "testing")
-
+    for i, sample in tqdm.tqdm(list(enumerate(dataloader), desc="testing")):
         sample_np = sample["image"].numpy()[0]
         output = model(sample["image"].to(device))  # Compute the output image
         loss = loss_function(output, sample["image"].to(device))  # Compute the loss

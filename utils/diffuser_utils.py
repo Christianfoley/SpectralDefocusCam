@@ -3,6 +3,9 @@ import numpy as np
 import torch
 import torch.optim
 import scipy.io
+import cv2
+
+import models.rdmpy.blur as blur
 
 
 def interleave3d(t, spec_dim=2):  # takes 1,2,2,x,a,a returns 1,2,2x,a,a
@@ -34,22 +37,87 @@ def tt(x, device="cuda:0"):
     return torch.tensor(x, dtype=torch.float32, device=device)
 
 
+def pyramid_down(image, out_shape):
+    if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
+        return image
+    closest_pyr = cv2.pyrDown(image, (image.shape[0] // 2, image.shape[1] // 2))
+    return cv2.resize(closest_pyr, out_shape, interpolation=cv2.INTER_AREA)
+
+
+def batch_ring_convolve(data, psfs, device=torch.device("cpu")):
+    """
+    Crutch function to perform 2d ring convolution on every 2d slice in a
+    batched hyperspectral blur stack
+
+    Parameters
+    ----------
+    data : torch.Tensor
+        5d tensor of shape (batch, n_blur, channel, y, x)
+    psfs : torch.Tensor
+        4d tensor of shape (n_blur, y, psfs, x)
+    device : torch.device, optional
+        device, by default cpu
+
+    Returns
+    -------
+    torch.Tensor
+        blurred batch
+    """
+    # TODO find a better way to do this (maybe reimplementing blur.py)
+    assert len(data.shape) == 5, "data must be of shape b, n, c, y, x"
+    assert len(psfs.shape) == 4, "psf data must be of shape n, c, y, x"
+
+    batch = []
+    for b in range(data.shape[0]):
+        blur_stack = []
+        for n in range(data.shape[1]):
+            channel = []
+            for c in range(data.shape[2]):
+                blurred = blur.ring_convolve(data[b, n, c], psfs[n], device=device)
+                channel.append(blurred)
+            blur_stack.append(torch.stack(channel, 0))
+        batch.append(torch.stack(blur_stack, 0))
+    return batch
+
+
 def load_mask(
     path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
+    patch_crop_source=[500, 1500],  # [200, 2100],
+    patch_crop_size=[768, 768],
     patch_size=[256, 256],
     old_calibration=False,
+    sum_chans_2=True,
 ):
     spectral_mask = scipy.io.loadmat(path)
-    mask = spectral_mask["mask"]
-    mask = mask[100 : 100 + patch_size[0], 100 : 100 + patch_size[1], :-1]
+    dims = (
+        patch_crop_source[0],
+        patch_crop_source[0] + patch_crop_size[0],
+        patch_crop_source[1],
+        patch_crop_source[1] + patch_crop_size[1],
+    )
+    mask = spectral_mask["mask"][dims[0] : dims[1], dims[2] : dims[3]]
 
     if old_calibration:  # weird things about models trained with calibration matrix
+        mask = mask[100 : 100 + patch_size[0], 100 : 100 + patch_size[1], :-1]
         mask = (mask[..., 0::2] + mask[..., 1::2]) / 2
         mask = mask[..., 0:30]
     else:
-        mask = mask[..., 0:60:2]
-        # normalize
-        mask = (mask - np.min(mask)) / (np.max(mask - np.min(mask)))
+        # widening "filter" resolution to adjascent wavelengths
+        if sum_chans_2:
+            mask1 = mask[..., 0:-1:2]
+            mask2 = mask[..., 1::2]
+            mask = (mask1 + mask2)[..., 0:30]
+        else:
+            mask = mask[..., :64]
+
+        # downsample & normalize
+        nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
+        mask = np.stack(
+            [pyramid_down(mask[..., i], patch_size) for i in range(mask.shape[-1])],
+            axis=-1,
+        )
+
+        mask = nm(mask)
     return mask
 
 

@@ -14,7 +14,12 @@ class fista_spectral_numpy:
         if "cuda" in self.device:
             self.np = cp
             self.tv_lib = cptv
-            print("device = ", self.device, ", using GPU and cupy")
+
+            print(
+                "device = ",
+                self.np.cuda.Device(int(device[-1])).use(),
+                ", using GPU and cupy",
+            )
         else:
             self.np = np
             self.tv_lib = nptv
@@ -29,6 +34,7 @@ class fista_spectral_numpy:
         print(type(h), type(mask))
 
         ## Initialize constants
+        self.psfs = h
         self.DIMS0 = h.shape[1]  # Image Dimensions
         self.DIMS1 = h.shape[2]  # Image Dimensions
 

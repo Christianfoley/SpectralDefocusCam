@@ -1,0 +1,73 @@
+# example config for training
+
+# data paths
+checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
+psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/psf_selected_10_14"
+base_data_path: "/home/cfoley_waller/defocam/defocuscamdata/sample_data"
+false_color_mat_path: "/home/cfoley_waller/defocam/SpectralDefocusCam/utils/false_color_calib.mat"
+mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_full_9_27_2023_exp14.08ms_gain14.9_navg16_378_890/calibration_matrix.mat"
+
+# model params
+device: "cuda:0"
+forward_model_params:
+  stack_depth: 3
+  sim_blur: False
+  sim_meas: True
+  optimize_blur: False
+  blur_type: "symmetric"
+  apply_adjoint: True
+  spectral_pad_output: True
+  psf_padded_shape: [768, 768] #ensures psf will be ds 3x (to 256x256)
+recon_model_params:
+  model_name: "unet"
+  # unet params
+  recurrence_t: 2
+
+  # lcnf params
+  encoder_specs:
+    name: edsr
+    args: 
+      no_upsampling: True
+      input_channel: 30
+  imnet_spec:
+    name: mlp
+    args:
+      out_dim: 30
+      hidden_list: [256, 256, 256, 256, 256]
+  enhancements:
+    local_ensemble: True
+    feat_unfold: True
+    cell_decode: True
+    radialencode: False
+    encoord_dim: 48
+    angle_num: 12
+
+# training params
+epochs: 300
+batch_size: 3
+patch_size: [256, 256]
+num_workers: 1
+data_partition: [0.7,0.15,0.15] #train,val,test
+early_stopping_patience: 15
+loss_function: 
+  name: "mse" # mse, mae, cossim, lpips, psnr, ssim
+  params: 
+optimizer: 
+  name: "adamw" #adam, sgd, adagrad, rmsprop
+  params: #kwargs
+    lr: 0.0003
+    weight_decay: 0.02
+lr_scheduler: 
+  name: "exponential" # warm_cosine_anneal, exponential, plateau
+  params: 
+    gamma: 0.99
+
+# restarting from checkpoint
+preload_weights: True
+checkpoint_dir: "/home/cfoley_waller/defocam/defocuscamdata/models/checkpoint_train_10_14_2023_stack3_exp_blur_r2attn.yml/2023_10_15_15_53_39_mask_summed_stride2/saved_model_ep110_testloss_0.00686642258161945.pt"
+offset: 110
+
+#other params
+log_grads: False
+validation_stride: 2
+checkpoint_stride: 10

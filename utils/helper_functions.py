@@ -121,8 +121,9 @@ def crop(x):
     return x[C01:C02, C11:C12, :]
 
 
-def pre_plot(x):
-    x = np.fliplr(np.flipud(x))
+def pre_plot(x, flip=True):
+    if flip:
+        x = np.fliplr(np.flipud(x))
     x = x / np.max(x)
     x = np.clip(x, 0, 1)
     return x
@@ -221,31 +222,139 @@ def preprocess(mask, psf, im):
     return mask, psf, im
 
 
-def show_progress_bar(dataloader, current, process="training", interval=1):
+def interp_along_axis(y, x, newx, axis, inverse=False, method="linear"):
+    """Interpolate vertical profiles, e.g. of atmospheric variables
+    using vectorized numpy operations
+
+    This function assumes that the x-xoordinate increases monotonically
+
+    ps:
+    * Updated to work with irregularly spaced x-coordinate.
+    * Updated to work with irregularly spaced newx-coordinate
+    * Updated to easily inverse the direction of the x-coordinate
+    * Updated to fill with nans outside extrapolation range
+    * Updated to include a linear interpolation method as well
+        (it was initially written for a cubic function)
+
+    Peter Kalverla
+    March 2018
+
+    --------------------
+    More info:
+    Algorithm from: http://www.paulinternet.nl/?page=bicubic
+    It approximates y = f(x) = ax^3 + bx^2 + cx + d
+    where y may be an ndarray input vector
+    Returns f(newx)
+
+    The algorithm uses the derivative f'(x) = 3ax^2 + 2bx + c
+    and uses the fact that:
+    f(0) = d
+    f(1) = a + b + c + d
+    f'(0) = c
+    f'(1) = 3a + 2b + c
+
+    Rewriting this yields expressions for a, b, c, d:
+    a = 2f(0) - 2f(1) + f'(0) + f'(1)
+    b = -3f(0) + 3f(1) - 2f'(0) - f'(1)
+    c = f'(0)
+    d = f(0)
+
+    These can be evaluated at two neighbouring points in x and
+    as such constitute the piecewise cubic interpolator.
     """
-    Utility function to print tensorflow-like progress bar.
-    Written instead of using tqdm to allow for custom progress bar readouts.
-    :param iterable dataloader: dataloader currently being processed
-    :param int current: current index in dataloader
-    :param str proces: current process being performed
-    :param int interval: interval at which to update progress bar
-    """
-    current += 1
-    bar_length = 50
-    fraction_computed = current / dataloader.__len__()
 
-    if current % interval != 0 and fraction_computed < 1:
-        return
-
-    pointer = ">" if fraction_computed < 1 else "="
-    loading_string = (
-        "=" * int(bar_length * fraction_computed)
-        + ">"
-        + "_" * int(bar_length * (1 - fraction_computed))
-    )
-    output_string = f"\t {process} {current}/{dataloader.__len__()} [{loading_string}] ({int(fraction_computed * 100)}%)"
-
-    if fraction_computed <= (dataloader.__len__() - interval) / dataloader.__len__():
-        print(output_string, end="\r")
+    # View of x and y with axis as first dimension
+    if inverse:
+        _x = np.moveaxis(x, axis, 0)[::-1, ...]
+        _y = np.moveaxis(y, axis, 0)[::-1, ...]
+        _newx = np.moveaxis(newx, axis, 0)[::-1, ...]
     else:
-        print(output_string)
+        _y = np.moveaxis(y, axis, 0)
+        _x = np.moveaxis(x, axis, 0)
+        _newx = np.moveaxis(newx, axis, 0)
+
+    # Sanity checks
+    if np.any(_newx[0] < _x[0]) or np.any(_newx[-1] > _x[-1]):
+        # raise ValueError('This function cannot extrapolate')
+        warnings.warn(
+            "Some values are outside the interpolation range. "
+            "These will be filled with NaN"
+        )
+    if np.any(np.diff(_x, axis=0) < 0):
+        raise ValueError("x should increase monotonically")
+    if np.any(np.diff(_newx, axis=0) < 0):
+        raise ValueError("newx should increase monotonically")
+
+    # Cubic interpolation needs the gradient of y in addition to its values
+    if method == "cubic":
+        # For now, simply use a numpy function to get the derivatives
+        # This produces the largest memory overhead of the function and
+        # could alternatively be done in passing.
+        ydx = np.gradient(_y, axis=0, edge_order=2)
+
+    # This will later be concatenated with a dynamic '0th' index
+    ind = [i for i in np.indices(_y.shape[1:])]
+
+    # Allocate the output array
+    original_dims = _y.shape
+    newdims = list(original_dims)
+    newdims[0] = len(_newx)
+    newy = np.zeros(newdims)
+
+    # set initial bounds
+    i_lower = np.zeros(_x.shape[1:], dtype=int)
+    i_upper = np.ones(_x.shape[1:], dtype=int)
+    x_lower = _x[0, ...]
+    x_upper = _x[1, ...]
+
+    for i, xi in enumerate(_newx):
+        # Start at the 'bottom' of the array and work upwards
+        # This only works if x and newx increase monotonically
+
+        # Update bounds where necessary and possible
+        needs_update = (xi > x_upper) & (i_upper + 1 < len(_x))
+        # print x_upper.max(), np.any(needs_update)
+        while np.any(needs_update):
+            i_lower = np.where(needs_update, i_lower + 1, i_lower)
+            i_upper = i_lower + 1
+            x_lower = _x[[i_lower] + ind]
+            x_upper = _x[[i_upper] + ind]
+
+            # Check again
+            needs_update = (xi > x_upper) & (i_upper + 1 < len(_x))
+
+        # Express the position of xi relative to its neighbours
+        xj = (xi - x_lower) / (x_upper - x_lower)
+
+        # Determine where there is a valid interpolation range
+        within_bounds = (_x[0, ...] < xi) & (xi < _x[-1, ...])
+
+        if method == "linear":
+            f0, f1 = _y[[i_lower] + ind], _y[[i_upper] + ind]
+            a = f1 - f0
+            b = f0
+
+            newy[i, ...] = np.where(within_bounds, a * xj + b, np.nan)
+
+        elif method == "cubic":
+            f0, f1 = _y[[i_lower] + ind], _y[[i_upper] + ind]
+            df0, df1 = ydx[[i_lower] + ind], ydx[[i_upper] + ind]
+
+            a = 2 * f0 - 2 * f1 + df0 + df1
+            b = -3 * f0 + 3 * f1 - 2 * df0 - df1
+            c = df0
+            d = f0
+
+            newy[i, ...] = np.where(
+                within_bounds, a * xj**3 + b * xj**2 + c * xj + d, np.nan
+            )
+
+        else:
+            raise ValueError(
+                "invalid interpolation method" "(choose 'linear' or 'cubic')"
+            )
+
+    if inverse:
+        newy = newy[::-1, ...]
+
+    return np.moveaxis(newy, 0, axis)

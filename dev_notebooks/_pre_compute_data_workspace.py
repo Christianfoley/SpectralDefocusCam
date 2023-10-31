@@ -2,15 +2,21 @@
 import sys
 
 sys.path.insert(0, "/home/cfoley_waller/defocam/SpectralDefocusCam")
-import data_utils.dataset as ds
-import models.forward as fm
-import train
-from utils.helper_functions import read_config
 import os
 import numpy as np
+import torch
 
+import models.rdmpy.blur as blur
+import models.rdmpy.calibrate as calibrate
+import models.forward as fm
+
+import train
+import data_utils.dataset as ds
+from utils.helper_functions import read_config
+
+# %%
 # ----------------------------------------- Specify paths & setup config ------------------------------------------ #
-config_path = "/home/cfoley_waller/defocam/SpectralDefocusCam/config_files/training/train_9_8_2023_stack3_sim_blur_unet.yml"
+config_path = "/home/cfoley_waller/defocam/SpectralDefocusCam/config_files/training/train_10_18_2023_stack3_exp_NEW_blur_unet.yml"
 precomputed_dir = "/home/cfoley_waller/defocam/defocuscamdata/sample_data/precomputed"
 
 config = read_config(config_path)
@@ -30,6 +36,33 @@ blur_levels = "_".join(
     ["blur"] + [x[:6] for x in map(str, forward_model.w_init.tolist())]
 )
 precomputed_dir = os.path.join(precomputed_dir, blur_levels)
+
+# %%
+
+dim = 768
+sys_params = {
+    "samples": dim,
+    "L": 1e-3,
+    "lamb": 0.55e-6,
+    "pupil_radius": ((dim) * (0.55e-6) * (100e-3)) / (4 * (1e-3)),
+    "z": 100e-3,
+}
+coeffs = np.load(
+    "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/10_26/multipos/alignment_psfs_telecent25um_10_26/seidel_coeffs_blur1.npy"
+)
+device = "cuda:0"
+
+psf_data = calibrate.get_psfs(
+    seidel_coeffs=torch.tensor(coeffs, device=device),
+    dim=dim,
+    model="lri",
+    sys_params=sys_params,
+    device=device,
+    verbose=True,
+)
+psf_data = psf_data.detach().cpu().numpy()
+
+
 # %%
 # ----------------------------------------- COMPUTE MEASUREMENTS ------------------------------------------ #
 train_data_dir = os.path.join(precomputed_dir, "train")
