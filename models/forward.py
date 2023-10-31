@@ -141,6 +141,34 @@ class Forward_Model(torch.nn.Module):
             )
         self.psfs = torch.tensor(psfs, dtype=torch.float32, device=self.device)
 
+    def spectral_pad(self, x, spec_dim=2, size=-1):
+        """
+        Zero pads spectral dimension of input tensor x to a power of 2
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            input tensor to be padded (b, n, c, y, x)
+        spec_dim : int, optional
+            index of spectral dimension in tensor, by default 2
+        size : int, optional
+            size of padding, if specific size is requested, by default -1
+
+        Returns
+        -------
+        torch.Tensor
+            padded output tensor
+        """
+        spec_channels = x.shape[spec_dim]
+        padsize = 0
+        while spec_channels & (spec_channels - 1) != 0:
+            spec_channels += 1
+            padsize += 1
+        padsize = size if size >= 0 else padsize
+        return F.pad(
+            x, (0, 0, 0, 0, padsize // 2, padsize // 2 + padsize % 2), "constant", 0
+        )
+
     def Hfor(self, x):
         """
         LSI spatially invariant system forward method
@@ -231,34 +259,6 @@ class Forward_Model(torch.nn.Module):
             pad_zeros_torch(self, b * mask), torch.conj(h), self.device
         ).real
         return v_hat
-
-    def spectral_pad(self, x, spec_dim=2, size=-1):
-        """
-        Zero pads spectral dimension of input tensor x to a power of 2
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            input tensor to be padded (b, n, c, y, x)
-        spec_dim : int, optional
-            index of spectral dimension in tensor, by default 2
-        size : int, optional
-            size of padding, if specific size is requested, by default -1
-
-        Returns
-        -------
-        torch.Tensor
-            padded output tensor
-        """
-        spec_channels = x.shape[spec_dim]
-        padsize = 0
-        while spec_channels & (spec_channels - 1) != 0:
-            spec_channels += 1
-            padsize += 1
-        padsize = size if size >= 0 else padsize
-        return F.pad(
-            x, (0, 0, 0, 0, padsize // 2, padsize // 2 + padsize % 2), "constant", 0
-        )
 
     def forward(self, in_image):
         """
