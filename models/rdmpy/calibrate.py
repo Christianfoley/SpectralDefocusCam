@@ -9,6 +9,139 @@ import pdb
 import gc
 
 
+def calibrate_stack(
+    calib_image_stack,
+    dim,
+    model="lri",
+    get_psf_data=True,
+    fit_params={},
+    sys_params={},
+    verbose=True,
+    show_psfs=False,
+    device=torch.device("cpu"),
+):
+    """
+
+    Parameters
+    ----------
+    calib_image : torch.Tensor
+        Calibration image, ideally an image of sparse, randomly-placed point sources.
+        Can be any size (M, N) but will be cropped to (dim, dim) for the Seidel fitting.
+
+    dim : int
+        Desired sidelength of each PSF image. Note that it enforces square images.
+
+    model : str, optional
+        Either 'lsi' or 'lri' for the type of PSF model to use.
+        'lsi' returns a single PSF at the center of the image, while 'lri' returns a
+        radial line of PSF RoFTs. Use 'lri' for ring deconvolution, and 'lsi' for
+        standard deconvolution.
+
+    get_psf_data : bool, optional
+        Whether to return the PSFs or just the seidel coefficients.
+
+    fit_params : dict, optional
+        Parameters for the seidel fitting procedure. See `opt.py` for details.
+
+    sys_params : dict, optional
+        Parameters for the optical system. See `seidel.py` for details.
+
+    verbose : bool, optional
+        Whether to print out progress.
+
+    show_psfs : bool, optional
+        Whether to show the PSFs estimated by the Seidel fit.
+
+    device : torch.device, optional
+        Device to run the calibration on.
+
+    Returns
+    -------
+    seidel_coeffs : torch.Tensor
+        Seidel coefficients of the optical system. Will be (6,1).
+
+    psf_data : torch.Tensor
+        PSFs of the optical system. If `model` is 'lsi', this is a single PSF.
+        If `model` is 'lri', this is a stack of PSF RoFTs. Optional.
+
+
+    """
+
+    # default parameters which describe the optical system.
+    def_sys_params = {
+        "samples": dim,
+        "L": 1e-3,
+        "lamb": 0.55e-6,
+        "pupil_radius": ((dim) * (0.55e-6) * (100e-3)) / (4 * (1e-3)),
+        "z": 100e-3,
+    }
+    def_sys_params.update(sys_params)
+
+    # parameters which are used for the seidel fitting procedure
+    def_fit_params = {
+        "sys_center": [
+            calib_image_stack.shape[1] // 2,
+            calib_image_stack.shape[2] // 2,
+        ],
+        "centered_psf": False,
+        "min_distance": 30,
+        "threshold": 0.45,
+        "init": "zeros",
+        "seidel_init": None,
+        "iters": 300,
+        "lr": 1e-2,
+        "reg": 0,
+        "plot_loss": False,
+        "get_inter_seidels": False,
+    }
+    def_fit_params.update(fit_params)
+
+    # seperating out individual PSFs from the calibration image
+    img_stack = []
+    stack_psf_locations = []
+    for i in range(calib_image_stack.shape[0]):
+        psf_locations, calib_image = util.get_calib_info(
+            calib_image_stack[i], dim, def_fit_params
+        )
+        img_stack.append(calib_image)
+        stack_psf_locations.append(psf_locations)
+    calib_image_stack = np.stack(img_stack, 0)
+
+    # seidel fitting
+    if verbose:
+        print("fitting seidel coefficients...")
+    coeffs = opt.estimate_coeffs_blurstack(
+        calib_image_stack,
+        psf_list=stack_psf_locations,
+        sys_params=def_sys_params,
+        fit_params=def_fit_params,
+        show_psfs=show_psfs,
+        device=device,
+    )
+
+    if verbose:
+        print("Fitted seidel coefficients: " + str(coeffs.detach().cpu()))
+    if get_psf_data:
+        stack_psf_data = []
+        for i in range(calib_image_stack.shape[0]):
+            stack_psf_data.append(
+                get_psfs(
+                    coeffs[i],
+                    dim,
+                    model,
+                    sys_params=def_sys_params,
+                    verbose=verbose,
+                    device=device,
+                ).cpu()
+            )
+        coeffs = coeffs.cpu()
+        stack_psf_data = torch.stack(stack_psf_data, 0)
+        return coeffs, stack_psf_data
+
+    else:
+        return coeffs
+
+
 def calibrate(
     calib_image,
     dim,

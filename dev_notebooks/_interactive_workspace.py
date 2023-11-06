@@ -6,25 +6,60 @@ import glob
 import PIL.Image as Image
 import numpy as np
 import scipy.io as io
+import tqdm
 
 sys.path.insert(0, "/home/cfoley_waller/defocam/SpectralDefocusCam")
 
-from utils.psf_calibration_utils import get_psfs_dmm_37ux178, get_psf_stack
+from utils.psf_calibration_utils import get_psfs_dmm_37ux178, get_lsi_psfs
 import utils.psf_calibration_utils as psf_utils
 
 # %%
-path = "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/10_26/multipos/alignment_psfs_telecent25um_10_26"
-focus_levels = 3  # levels of focus in your measurements
-estimate = (
-    "median"  # mean if your points seem to shift very consistently, median if they dont
-)
-crop = (200, 200, 1400, 1400)  # we will limit our crop to this region
+io.loadmat(
+    "/home/cfoley_waller/defocam/defocuscamdata/sample_data_preprocessed_11_2/pavia_data/PaviaCenter_bot_patch_0.mat"
+).keys()
+# %%
+import torch
+import utils.helper_functions as helper
+import data_utils.precomp_dataset as pre_ds
 
+# setup device
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+config = "/home/cfoley_waller/defocam/SpectralDefocusCam/config_files/training/train_11_1_2023_lri_precomputed.yml"
+config = helper.read_config(config)
 
-center_estimate = psf_utils.estimate_alignment_center(
-    path, focus_levels, estimate="median", crop=crop, verbose=True
+print("Num devices: ", torch.cuda.device_count())
+device = helper.get_device(config["device"])
+
+train_loader, val_loader, _ = pre_ds.get_data_precomputed(
+    1,
+    config["data_partition"],
+    config["base_data_path"],
+    0,
+    config["forward_model_params"],
 )
-print(center_estimate)
+
+# %%
+for sample in train_loader:
+    y, x = sample["image"], sample["input"]
+    print(y.shape, x.shape)
+    break
+# %%
+fig, ax = plt.subplots(1, 2)
+ax[0].imshow(np.mean(y.numpy()[0], 0))
+ax[1].imshow(x.numpy()[0, 0, 5])
+# %%
+
+helper.plt3D(x.numpy()[0, 0].transpose(1, 2, 0), size=(3, 3))
+# %%
+import scipy.io as io
+
+mat = io.loadmat(
+    "/home/cfoley_waller/defocam/defocuscamdata/sample_data_preprocessed/harvard_data/imgf5_patch_15.mat"
+)
+a = mat["image"]
+print(a.shape)
+
+plt.imshow(np.mean(a, 2))
 # %%
 # ------------------ testing psf loading ---------------- #
 psf_dir = "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/psfs_selected_10_18_2023_new_noiseavg32"

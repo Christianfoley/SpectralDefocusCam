@@ -128,7 +128,6 @@ class SpectralWrapper(Dataset):
         self.length = np.sum(self.lengths)
         self.transform = transform
         self.test_transform = test_transform
-        # print('datasets:', self.datasets, '\n', 'lengths:', self.lengths, '\n', 'totallength:', self.length)
 
         self.readtime = 0
 
@@ -145,6 +144,7 @@ class SpectralWrapper(Dataset):
         sample = self.datasets[i].__getitem__(index)
         if self.transform:
             sample = self.transform(sample)
+        sample["input"] = sample["image"]
 
         self.readtime += sum([ds.readtime for ds in self.datasets])
         return sample

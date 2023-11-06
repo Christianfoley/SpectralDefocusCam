@@ -1,23 +1,22 @@
 import numpy as np
 import torch
-import torch.nn as nn
-import matplotlib.pyplot as plt
-import os, glob, cv2
+import os, glob
+import scipy.io as io
+from datetime import datetime
+import tqdm
 
-import data_utils.dataset as ds
 from utils.diffuser_utils import *
 import utils.psf_calibration_utils as psf_utils
 
-import models.rdmpy.blur as blur
 
-
-class Forward_Model(torch.nn.Module):
+class ForwardModel(torch.nn.Module):
     def __init__(
         self,
         mask,
         params,
         psf_dir=None,
         w_init=None,
+        passthrough=False,
         device=torch.device("cpu"),
     ):
         """
@@ -37,11 +36,14 @@ class Forward_Model(torch.nn.Module):
             path to directory containing LRI or LSI psf data, by default None
         w_init : list, optional
             specific initialization for the blur kernels, by default None
+        passthrough : bool
+            option to make model "passthrough", by default False
         device : torch.Device
             device to perform operations & hold tensors on, by default "cpu"
         """
-        super(Forward_Model, self).__init__()
+        super(ForwardModel, self).__init__()
         self.device = device
+        self.passthrough = passthrough
         self.psf_dir, self.psfs = psf_dir, None
         self.num_ims = params["stack_depth"]
 
@@ -71,9 +73,9 @@ class Forward_Model(torch.nn.Module):
                 self.w_init,
                 dtype=torch.float32,
                 device=self.device,
-                requires_grad=self.optimize_blur,
+                requires_grad=self.psf["optimize"],
             ),
-            requires_grad=self.optimize_blur,
+            requires_grad=self.psf["optimize"],
         )
 
         # set up grid
@@ -84,9 +86,8 @@ class Forward_Model(torch.nn.Module):
         self.X = torch.tensor(X, dtype=torch.float32, device=self.device)
         self.Y = torch.tensor(Y, dtype=torch.float32, device=self.device)
 
-        self.mask = np.transpose(mask, (2, 0, 1))
-        self.mask_var = torch.tensor(
-            self.mask, dtype=torch.float32, device=self.device
+        self.mask = torch.tensor(
+            np.transpose(mask, (2, 0, 1)), dtype=torch.float32, device=self.device
         ).unsqueeze(0)
 
         # determine forward and adjoint methods
@@ -120,26 +121,31 @@ class Forward_Model(torch.nn.Module):
         """
         Initializes psfs depending on the specified parameters.
             - If simulating psfs (LSI only), generates initial psf values
-            - If using measured LSI psfs, loads and preprocesses psf stack
             - If using LRI psfs, loads in calibrated psf data
+            - If using measured LSI psfs, loads and preprocesses psf stack
         """
-        if self.psf["lri"]:
-            psf_utils.read_psfs(self.psf_dir)
-
+        if self.passthrough:
             return
 
         if self.operations["sim_blur"]:
-            psfs = self.simulate_LSI_psf()
-        elif self.psfs == None:
-            psfs = psf_utils.get_psf_stack(
-                self.psf_dir,
-                self.num_ims,
-                self.mask.shape,
-                self.psf["padded_shape"],
-                one_norm=self.psf["norm_each"],
-                blurstride=self.psf["stride"],
-            )
-        self.psfs = torch.tensor(psfs, dtype=torch.float32, device=self.device)
+            psfs = self.simulate_lsi_psf()
+            self.psfs = torch.tensor(psfs, dtype=torch.float32, device=self.device)
+        elif self.psfs is None:
+            if self.psf["lri"]:
+                psfs = psf_utils.get_lri_psfs(
+                    self.psf_dir,
+                    self.num_ims,
+                )
+            else:
+                psfs = psf_utils.get_lsi_psfs(
+                    self.psf_dir,
+                    self.num_ims,
+                    self.mask.shape,
+                    self.psf["padded_shape"],
+                    one_norm=self.psf["norm_each"],
+                    blurstride=self.psf["stride"],
+                )
+            self.psfs = torch.tensor(psfs, device=self.device)
 
     def spectral_pad(self, x, spec_dim=2, size=-1):
         """
@@ -169,7 +175,7 @@ class Forward_Model(torch.nn.Module):
             x, (0, 0, 0, 0, padsize // 2, padsize // 2 + padsize % 2), "constant", 0
         )
 
-    def Hfor(self, x):
+    def Hfor(self, v, h, mask):
         """
         LSI spatially invariant system forward method
 
@@ -187,13 +193,14 @@ class Forward_Model(torch.nn.Module):
         torch.Tensor
             simulated measurements (b, n, 1, y, x)
         """
-        X = fft_im(my_pad(self, x)).unsqueeze(2)
-        H = fft_psf(self, self.psfs)
-        out = torch.fft.ifft2(H * X).real
-        output = torch.sum(self.mask_var * crop_forward(self, out), 2)
-        return output
+        V = fft_im(my_pad(self, v))
+        H = fft_psf(self, h)
+        b = torch.sum(
+            mask * crop_forward(self, torch.fft.ifft2(H * V).real), 2, keepdim=True
+        )
+        return b
 
-    def Hadj(self, sim_meas):
+    def Hadj(self, b, h, mask):
         """
         LSI spatially invariant convolution adjoint method
 
@@ -202,7 +209,7 @@ class Forward_Model(torch.nn.Module):
         b : torch.Tensor
             simulated (or not) measurement (b, n, 1, y, x)
         h : torch.Tensor
-            measured or simulated psf data (n,y,x)
+            measured or simulated psf data (n, y, x)
         mask : torch.Tensor
             spectral calibration matrix/mask (c, y, x)
 
@@ -211,10 +218,10 @@ class Forward_Model(torch.nn.Module):
         torch.Tensor
             LSI system adjoint
         """
-        Hconj = torch.conj(fft_psf(self, self.psfs))
-        sm = pad_zeros_torch(self, sim_meas * self.mask_var)
-        adj_meas = torch.fft.ifft2(Hconj * fft_im(sm)).real
-        return adj_meas
+        Hconj = torch.conj(fft_psf(self, h))
+        B_adj = fft_im(pad_zeros_torch(self, b * mask))
+        v_hat = crop_forward(self, torch.fft.ifft2(Hconj * B_adj).real)
+        return v_hat
 
     def Hfor_varying(self, v, h, mask):
         """
@@ -234,7 +241,7 @@ class Forward_Model(torch.nn.Module):
         torch.Tensor
             simulated measurements (b, n, 1, y, x)
         """
-        b = torch.sum(mask * crop_forward(batch_ring_convolve(v, h, self.device)), 2)
+        b = torch.sum(mask * batch_ring_convolve(v, h, self.device), 2, keepdim=True)
         return b
 
     def Hadj_varying(self, b, h, mask):
@@ -255,18 +262,16 @@ class Forward_Model(torch.nn.Module):
         torch.Tensor
             LRI system adjoint (b, n, c, y, x)
         """
-        v_hat = batch_ring_convolve(
-            pad_zeros_torch(self, b * mask), torch.conj(h), self.device
-        ).real
+        v_hat = batch_ring_convolve(b * mask, torch.conj(h), self.device).real
         return v_hat
 
-    def forward(self, in_image):
+    def forward(self, v):
         """
         Applies forward model operations, as specified in initialization
 
         Parameters
         ----------
-        in_image : torch.tensor
+        v : torch.tensor
             5d tensor (b, n, c, y, x)
 
         Returns
@@ -274,26 +279,72 @@ class Forward_Model(torch.nn.Module):
         torch.Tensor
             5d tensor (b, n, 1, y x)
         """
+        # Option to pass through forward model if data is precomputed
+        if self.passthrough:
+            self.b = v
+            return self.b
+
         self.init_psfs()
 
         if self.operations["sim_meas"]:
-            self.sim_output = self.fwd(in_image)
+            self.b = self.fwd(v, self.psfs, self.mask)
         else:
-            self.sim_output = in_image
+            self.b = v
 
         if self.operations["adjoint"]:
-            self.sim_output = crop_forward(self, self.adj(self.sim_output))
+            self.b = self.adj(self.b, self.psfs, self.mask)
 
-        # spawn a channel dimension and apply a global normalization
-        self.sim_output = self.sim_output.unsqueeze(2)
-        self.sim_output = (self.sim_output - torch.min(self.sim_output)) / torch.max(
-            self.sim_output - torch.min(self.sim_output)
-        )
+        # applies global normalization
+        self.b = (self.b - torch.min(self.b)) / torch.max(self.b - torch.min(self.b))
 
         if self.operations["spectral_pad"]:
-            self.sim_output = self.spectral_pad(self.sim_output, spec_dim=2, size=2)
+            self.b = self.spectral_pad(self.b, spec_dim=2, size=2)
 
         if self.operations["roll"]:
-            self.sim_output = torch.roll(self.sim_output, self.num_ims // 2, dims=1)
+            self.b = torch.roll(self.b, self.num_ims // 2, dims=1)
 
-        return self.sim_output
+        return self.b
+
+
+def build_data_pairs(data_path, model):
+    """
+    Compute simulated system measurements for each .mat file's ground truth sample
+    using the given forward model. Simulated measurements are stored in the same .mat
+    file under a key defined by the parameters of the forward model.
+
+    Automatically uses the same device as the given model.
+
+    Parameters
+    ----------
+    data_path : str
+        path to data dir containing preprocessed .mat data files
+    model : torch.nn.Module
+        forward simulation model. Instance of ForwardModel
+    verbose : bool, optional
+        verbose, by default False
+    """
+    data_files = glob.glob(os.path.join(data_path, "*.mat"))
+    model_params = {
+        "stack_depth": model.num_ims,
+        "psf": model.psf,
+        "operations": model.operations,
+        "timestamp": datetime.now().strftime("%H,%M,%d,%m,%y"),
+    }
+    key = str(model_params)
+    desc = f"Generating Pair {os.path.basename(data_path)}"
+    for sample_file in tqdm.tqdm(data_files, desc=desc):
+        try:
+            sample = io.loadmat(sample_file)
+        except Exception as e:
+            print(f"Exception {e} \n File: {sample_file}")
+            continue
+
+        # if sample already in sample_file, skip
+        if len(list(sample.keys())) > 4:
+            continue
+
+        ground_truth = np.expand_dims(np.transpose(sample["image"], (2, 0, 1)), (0, 1))
+        ground_truth = torch.tensor(ground_truth, device=model.device)
+        sample[key] = model(ground_truth).detach().cpu().numpy()
+
+        io.savemat(sample_file, sample)

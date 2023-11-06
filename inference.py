@@ -17,9 +17,27 @@ import models.Unet.unet3d as Unet3d
 
 
 def get_model_pretrained(weights, train_config, device):
+    """
+    Builds a model from pretrained weights. Note: this only supports deep learning
+    models, not iterative models (ISTA)
+
+    Parameters
+    ----------
+    weights : str
+        path to .pt file containing weights
+    train_config : dict
+        config dictionary used in training
+    device : torch.Device
+        device
+
+    Returns
+    -------
+    torch.nn.Module
+        model for inference
+    """
     # forward model
     mask = load_mask()
-    forward_model = fm.Forward_Model(
+    forward_model = fm.ForwardModel(
         mask,
         num_ims=train_config["stack_depth"],
         blur_type=train_config["blur_type"],

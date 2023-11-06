@@ -19,6 +19,163 @@ from .. import blur
 dirname = str(pathlib.Path(__file__).parent.absolute())
 
 
+def estimate_coeffs_blurstack(
+    calib_image_stack,
+    psf_list,
+    sys_params,
+    fit_params,
+    show_psfs=False,
+    verbose=True,
+    device=torch.device("cpu"),
+):
+    """
+    Estimate the Seidel coefficients of the optical system given a stack calibration images of
+    randomly scattered PSFs and their locations. Stack is presumed to be taken at multiple blur
+    levels of equal incremental amounts of defocus.
+
+
+    Parameters
+    ----------
+    calib_image : np.ndarray
+        Calibration image stack of randomly scattered PSFs (n, y, x).
+
+    psf_list : list of tuples
+        List of PSF locations in the calibration image. Expecting xy coordinates,
+        not rowcol coordinates.
+
+    sys_params : dict
+        Dictionary of optical system parameters.
+
+    fit_params : dict
+        Dictionary of fitting parameters.
+
+    show_psfs : bool, optional
+        Whether to show the estimated PSFs. The default is False.
+
+    verbose : bool, optional
+        Whether to print out progress. The default is True.
+
+    device : torch.device, optional
+        Device to run the calibration on. The default is torch.device("cpu").
+
+    Returns
+    -------
+    final_coeffs : torch.Tensor
+        Seidel coefficients of the optical system.
+
+    """
+
+    psfs_gt_stack = torch.tensor(calib_image_stack, device=device).float()
+    stack_depth = psfs_gt_stack.shape[0]
+
+    n_seidel = 6
+    anchor_blur = fit_params.get("enforce_anchor_blur", 1)
+    if "enforce_anchor_blur" in fit_params:
+        n_seidel = 5
+
+    if fit_params["seidel_init"] is not None:
+        coeffs = torch.tensor(fit_params["seidel_init"], device=device)
+    else:
+        if fit_params["init"] == "zeros":
+            coeffs = torch.zeros((n_seidel, 1), device=device)
+        elif fit_params["init"] == "random":
+            coeffs = torch.rand((n_seidel, 1), device=device)
+        else:
+            raise NotImplementedError
+    coeffs.requires_grad = True
+
+    optimizer = torch.optim.Adam([coeffs], lr=fit_params["lr"])
+    l2_loss_fn = torch.nn.MSELoss()
+    l1_loss_fn = torch.nn.L1Loss()
+
+    anchor_blur_level = fit_params.get("anchor_blur_idx", stack_depth // 2)
+
+    if fit_params["plot_loss"]:
+        losses = []
+
+    iterations = (
+        tqdm(range(fit_params["iters"])) if verbose else range(fit_params["iters"])
+    )
+
+    for iter in iterations:
+        # estimate psfs over stack
+        psfs_estimate_stack = []
+        for blur_idx in range(stack_depth):
+            blur_scale = torch.ones(6, 1, device=device)
+            blur_scale[5, 0] = blur_idx / anchor_blur_level
+
+            if n_seidel == 6:
+                idx_coeffs = coeffs
+            else:
+                idx_coeffs = torch.cat(
+                    (coeffs, torch.ones(1, 1, device=device) * anchor_blur)
+                )
+            psfs_estimate_stack.append(
+                sum(
+                    seidel.compute_psfs(
+                        idx_coeffs * blur_scale,
+                        desired_list=psf_list[anchor_blur_level],
+                        stack=False,
+                        sys_params=sys_params,
+                        device=coeffs.device,
+                    )
+                ).float()
+            )
+        psfs_estimate_stack = torch.stack(psfs_estimate_stack, 0)
+
+        # loss
+        loss = l2_loss_fn(
+            util.normalize(psfs_estimate_stack),
+            util.normalize(psfs_gt_stack),
+        ) + fit_params["reg"] * l1_loss_fn(coeffs, -coeffs)
+
+        if fit_params["plot_loss"]:
+            losses += [loss.detach().cpu()]
+
+        # backward
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    if show_psfs:
+        for i in range(stack_depth):
+            psfs_est = psfs_estimate_stack[i]
+            psfs_gt = psfs_gt_stack[i]
+
+            plt.subplot(1, 2, 2)
+            plt.tight_layout()
+            plt.axis("off")
+            plt.imshow(psfs_est.detach().cpu(), cmap="inferno")
+            plt.gca().set_title("Seidel PSFs")
+
+            plt.subplot(1, 2, 1)
+            plt.tight_layout()
+            plt.axis("off")
+            plt.imshow(psfs_gt.detach().cpu(), cmap="inferno")
+            plt.gca().set_title("Measured PSFs")
+            plt.show()
+
+    if fit_params["plot_loss"]:
+        plt.figure()
+        plt.plot(range(len(losses)), losses)
+        plt.show()
+
+    # memory cleanup
+    del psfs_estimate_stack
+    del psfs_gt_stack
+
+    if n_seidel != 6:
+        coeffs = torch.cat((coeffs, torch.ones(1, 1, device=device) * anchor_blur))
+
+    final_coeffs = []
+    for blur_idx in range(stack_depth):
+        blur_scale = torch.ones(6, 1, device=device)
+        blur_scale[5, 0] = blur_idx / anchor_blur_level
+        final_coeffs.append((coeffs * blur_scale).detach())
+
+    return torch.stack(final_coeffs, 0)
+
+
 def estimate_coeffs(
     calib_image,
     psf_list,
@@ -74,12 +231,13 @@ def estimate_coeffs(
             coeffs = torch.rand((fit_params["num_seidel"], 1), device=device)
         else:
             raise NotImplementedError
-
     coeffs.requires_grad = True
 
     optimizer = torch.optim.Adam([coeffs], lr=fit_params["lr"])
     l2_loss_fn = torch.nn.MSELoss()
     l1_loss_fn = torch.nn.L1Loss()
+
+    blur_constraint = fit_params.get("enforce_blur", 0)
 
     if fit_params["plot_loss"]:
         losses = []
@@ -91,13 +249,17 @@ def estimate_coeffs(
         tqdm(range(fit_params["iters"])) if verbose else range(fit_params["iters"])
     )
 
-    BLUR_LEVEL = 0.2
-
     for iter in iterations:
         # forward pass
         if coeffs.shape[0] < 6:
             psfs_estimate = seidel.compute_psfs(
-                torch.cat((coeffs, torch.zeros(6 - coeffs.shape[0], 1, device=device))),
+                torch.cat(
+                    (
+                        coeffs,
+                        torch.ones(6 - coeffs.shape[0], 1, device=device)
+                        * blur_constraint,
+                    )
+                ),
                 desired_list=psf_list,
                 stack=False,
                 sys_params=sys_params,
@@ -112,9 +274,9 @@ def estimate_coeffs(
                 device=coeffs.device,
             )
         # loss
-        loss = l1_loss_fn(
+        loss = l2_loss_fn(
             util.normalize(sum(psfs_estimate).float()), util.normalize(psfs_gt)
-        ) + fit_params["reg"] * l2_loss_fn(coeffs, -coeffs)
+        ) + fit_params["reg"] * l1_loss_fn(coeffs, -coeffs)
 
         if fit_params["plot_loss"]:
             losses += [loss.detach().cpu()]
@@ -127,7 +289,11 @@ def estimate_coeffs(
             if coeffs.shape[0] < 6:
                 inter_seidels += [
                     torch.cat(
-                        (coeffs, torch.zeros(6 - coeffs.shape[0], 1, device=device))
+                        (
+                            coeffs,
+                            torch.ones(6 - coeffs.shape[0], 1, device=device)
+                            * blur_constraint,
+                        )
                     ).detach()
                 ]
             else:
@@ -161,7 +327,10 @@ def estimate_coeffs(
     else:
         if coeffs.shape[0] < 6:
             final_coeffs = torch.cat(
-                (coeffs, torch.zeros(6 - coeffs.shape[0], 1, device=device))
+                (
+                    coeffs,
+                    torch.ones(6 - coeffs.shape[0], 1, device=device) * blur_constraint,
+                )
             ).detach()
         else:
             final_coeffs = coeffs.detach()

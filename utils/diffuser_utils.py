@@ -44,14 +44,45 @@ def pyramid_down(image, out_shape):
     return cv2.resize(closest_pyr, out_shape, interpolation=cv2.INTER_AREA)
 
 
-def batch_ring_convolve(data, psfs, device=torch.device("cpu")):
+def rescale_to_psfs(batch, yx_shape, mode="trilinear"):
     """
-    Crutch function to perform 2d ring convolution on every 2d slice in a
-    batched hyperspectral blur stack
+    Rescales batch data via 3d bilinear interpolation to match the spatial
+    dims of the psf shape
 
     Parameters
     ----------
-    data : torch.Tensor
+    batch : torch.Tensor
+        5d tensor of shape (batch, n_blur, channel, y, x)
+    xy_shape : tuple
+        shape desired yx_shape
+    mode : str
+        interpolation mode
+
+    Returns
+    -------
+    tuple(torch.Tensor, tuple)
+        rescaled batch and the "output size"
+    """
+    original_size = batch.shape[3:]
+
+    if yx_shape == original_size:
+        return batch, original_size
+
+    batch = F.interpolate(batch, (batch.shape[2],) + yx_shape, mode=mode)
+    return batch, original_size
+
+
+def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
+    """
+    Crutch function to perform 2d ring convolution on every 2d slice in a
+    batched hyperspectral blur stack.
+
+    Note that if the psf batch is too large in y and x, the batch's x and y dimensions
+    will be upsampled to match
+
+    Parameters
+    ----------
+    batch : torch.Tensor
         5d tensor of shape (batch, n_blur, channel, y, x)
     psfs : torch.Tensor
         4d tensor of shape (n_blur, y, psfs, x)
@@ -64,25 +95,34 @@ def batch_ring_convolve(data, psfs, device=torch.device("cpu")):
         blurred batch
     """
     # TODO find a better way to do this (maybe reimplementing blur.py)
-    assert len(data.shape) == 5, "data must be of shape b, n, c, y, x"
+    assert len(batch.shape) == 5, "batch must be of shape b, n, c, y, x"
     assert len(psfs.shape) == 4, "psf data must be of shape n, c, y, x"
 
-    batch = []
-    for b in range(data.shape[0]):
+    # fix size mismatch issue (we upsample to psfs->conv->downsample back)
+    batch = batch.type(torch.float32)
+    batch, output_size = rescale_to_psfs(batch, (psfs.shape[1], psfs.shape[3]))
+
+    batch_stack = []
+    for b in range(batch.shape[0]):
         blur_stack = []
-        for n in range(data.shape[1]):
-            channel = []
-            for c in range(data.shape[2]):
-                blurred = blur.ring_convolve(data[b, n, c], psfs[n], device=device)
-                channel.append(blurred)
-            blur_stack.append(torch.stack(channel, 0))
-        batch.append(torch.stack(blur_stack, 0))
+        for n in range(psfs.shape[0]):
+            channel_stack = []
+            for c in range(batch.shape[2]):
+                blurred = blur.ring_convolve(
+                    batch[b, min(n, batch.shape[1] - 1), c], psfs[n], device=device
+                )
+                channel_stack.append(blurred)
+            blur_stack.append(torch.stack(channel_stack, 0))
+        batch_stack.append(torch.stack(blur_stack, 0))
+    batch = torch.stack(batch_stack, 0)
+
+    batch, _ = rescale_to_psfs(batch, output_size)
     return batch
 
 
 def load_mask(
     path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
-    patch_crop_source=[500, 1500],  # [200, 2100],
+    patch_crop_center=[500, 1500],  # [200, 2100],
     patch_crop_size=[768, 768],
     patch_size=[256, 256],
     old_calibration=False,
@@ -90,10 +130,10 @@ def load_mask(
 ):
     spectral_mask = scipy.io.loadmat(path)
     dims = (
-        patch_crop_source[0],
-        patch_crop_source[0] + patch_crop_size[0],
-        patch_crop_source[1],
-        patch_crop_source[1] + patch_crop_size[1],
+        patch_crop_center[0] - patch_crop_size[0] // 2,
+        patch_crop_center[0] + patch_crop_size[0] // 2,
+        patch_crop_center[1] - patch_crop_size[1] // 2,
+        patch_crop_center[1] + patch_crop_size[1] // 2,
     )
     mask = spectral_mask["mask"][dims[0] : dims[1], dims[2] : dims[3]]
 
@@ -229,58 +269,3 @@ def crop_forward(model, x):
     C11 = model.PAD_SIZE1 // 2
     C12 = model.PAD_SIZE1 // 2 + model.DIMS1  # Crop indices
     return x[..., C01:C02, C11:C12]
-
-
-# def crop_forward2(model, x):
-#    C01 = model.PAD_SIZE0//2; C02 = model.PAD_SIZE0//2 + model.DIMS0//2              # Crop indices
-#    C11 = model.PAD_SIZE1//2; C12 = model.PAD_SIZE1//2 + model.DIMS1//2              # Crop indices
-#    return x[:, :, :, C01:C02, C11:C12]
-class Forward_Model(torch.nn.Module):
-    def __init__(self, h_in, shutter=0, cuda_device=0):
-        super(Forward_Model, self).__init__()
-        self.cuda_device = cuda_device
-
-        ## Initialize constants
-        self.DIMS0 = h_in.shape[0]  # Image Dimensions
-        self.DIMS1 = h_in.shape[1]  # Image Dimensions
-        self.PAD_SIZE0 = int((self.DIMS0))  # Pad size
-        self.PAD_SIZE1 = int((self.DIMS1))  # Pad size
-
-        #         self.h_var = torch.nn.Parameter(torch.tensor(h_in, dtype=torch.float32, device=self.cuda_device),
-        #                                             requires_grad=False)
-        #         self.h_zeros = torch.nn.Parameter(torch.zeros(self.DIMS0*2, self.DIMS1*2, dtype=torch.float32, device=self.cuda_device),
-        #                                           requires_grad=False)
-        self.h_complex = pad_zeros_torch(
-            self,
-            torch.tensor(h_in, dtype=torch.cfloat, device=self.cuda_device).unsqueeze(
-                0
-            ),
-        )
-        self.const = torch.tensor(
-            1 / np.sqrt(self.DIMS0 * 2 * self.DIMS1 * 2),
-            dtype=torch.float32,
-            device=self.cuda_device,
-        )
-        self.H = torch.fft.fft2(ifftshift2d(self.h_complex))
-
-        self.shutter = np.transpose(shutter, (2, 0, 1))
-        self.shutter_var = torch.tensor(
-            self.shutter, dtype=torch.float32, device=self.cuda_device
-        ).unsqueeze(0)
-
-    def Hfor(self, x):
-        xc = torch.complex(x, torch.zeros_like(x))
-        X = torch.fft.fft2(xc)
-
-        HX = self.H * X
-        out = torch.fft.ifft2(HX)
-        out_r = out.real
-        return out_r
-
-    def forward(self, in_image):
-        output = torch.sum(
-            self.shutter_var * crop_forward(self, self.Hfor(my_pad(self, in_image))), 1
-        )
-        #         output = torch.sum((self.Hfor(my_pad(self, in_image))), 1)
-
-        return output

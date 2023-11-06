@@ -1,13 +1,15 @@
 # utils for experimental psfs
 import sys, glob, os, tqdm
 import numpy as np
+import scipy.io as io
+import torch
 import cv2
 from skimage import feature, morphology
-import scipy.signal as signal
 import matplotlib.pyplot as plt
 
 from PIL import Image
 import utils.diffuser_utils as diffuser_utils
+from models.rdmpy._src import seidel, util
 
 
 ### ---------- Utility functions ---------- ##
@@ -110,7 +112,7 @@ def center_crop_psf(psf, width, shape="square", center_offset=None, kernel_size=
         raise AssertionError("unhandled crop shape")
 
 
-def read_psfs(psf_dir, crop=None):
+def read_psfs(psf_dir, crop=None, patchsize=None):
     """
     Reads in ordered psf measurements stored as .bmp files from a directory.
 
@@ -120,6 +122,8 @@ def read_psfs(psf_dir, crop=None):
         directory containing measurements
     crop : tuple, optional
         cropping tuple: (y1, x1, y1, x2), by default None
+    patchsize : tuple, optional
+        output size (using pyramind down) to resize to, by default None
 
     Returns
     -------
@@ -127,10 +131,15 @@ def read_psfs(psf_dir, crop=None):
         list of psf measurements as numpy arrays
     """
     pathlist = sorted(glob.glob(os.path.join(psf_dir, "*.bmp")))
-    psfs = [np.array(Image.open(x), dtype=float) for x in pathlist]
+    psfs = []
+    for psf_path in tqdm.tqdm(pathlist, "Reading psf"):
+        psfs.append(np.array(Image.open(psf_path), dtype=float))
 
     if crop:
         psfs = [psf[crop[0] : crop[2], crop[1] : crop[3]] for psf in psfs]
+
+    if patchsize:
+        psfs = [diffuser_utils.pyramid_down(psf, patchsize) for psf in psfs]
 
     return psfs
 
@@ -160,15 +169,54 @@ def superimpose_psfs(psf_list, focus_levels=1, one_norm=True):
     ]
     for foc_psfs in psf_list:
         img = np.sum(np.stack(foc_psfs, 0), 0)
+
+        # need one-norming to go after superimposing because some psfs get cut off
         if one_norm:
-            img = one_normalize(img)
-            img = np.round(img * 255).astype(np.int16)
+            img = np.round(one_normalize(img.astype(float)) * 255).astype(np.int16)
         supimp_imgs.append(img)
 
     if focus_levels == 1:
         supimp_imgs[0]
     else:
         return supimp_imgs
+
+
+def view_coef_psfs(
+    coeffs,
+    dim=256,
+    circle_radii=[0, 50, 100, 150, 200],
+    points_per_ring=8,
+    device=torch.device("cpu"),
+):
+    """
+    Return an image of circles of simulated psfs for the given coefficients at the
+    specified radii
+
+    Parameters
+    ----------
+    coeffs : torch.Tensor
+        seidel coefficients (6,1)
+    circle_radii : list, optional
+        list of radii, by default [0, 50, 100]
+    points_per_ring : int
+        points per radius
+    device : torch.device, optional
+        device to compute psfs on, by default torch.device("cpu")
+    """
+    circ_points = []
+    for r in circle_radii:
+        ppr = points_per_ring
+        if r == 0:
+            ppr = 1
+        circ_points += util.getCircList((0, 0), radius=r, num_points=ppr)
+
+    psfs = seidel.compute_psfs(
+        coeffs.to(device),
+        circ_points,
+        dim=dim,
+        device=device,
+    )
+    return torch.sum(torch.stack(psfs, 0), 0).cpu().numpy()
 
 
 ##### ---------- alignment axis calibration ---------- #####
@@ -379,10 +427,10 @@ def get_psfs_dmm_37ux178(
     return psfs
 
 
-def get_psf_stack(
+def get_lsi_psfs(
     psf_dir, num_ims, mask_shape, padded_shape, one_norm=True, blurstride=1
 ):
-    stack_xy_shape = mask_shape[1:]
+    stack_xy_shape = mask_shape[-2:]
     psfs = get_psfs_dmm_37ux178(
         psf_dir,
         center_crop_width=min(stack_xy_shape),
@@ -406,3 +454,22 @@ def get_psf_stack(
         [diffuser_utils.pyramid_down(psf, stack_xy_shape) for psf in psfs], 0
     )
     return np.transpose(psfs, (0, 1, 2))
+
+
+def save_lri_psf(coeffs, psf_data, psf_dir, focus_level):
+    coeffs, psf_data = coeffs.detach().cpu().numpy(), psf_data.detach().cpu().numpy()
+    save_data = {"coefficients": coeffs, "psf_data": psf_data}
+    if not os.path.exists(psf_dir):
+        os.makedirs(psf_dir)
+    path = os.path.join(psf_dir, f"lri_psf_calib_{focus_level}.mat")
+    io.savemat(path, save_data)
+    print(f"Saved psf data of shape {psf_data.shape} to {path}.")
+
+
+def get_lri_psfs(psf_dir, num_ims):
+    psf_data = []
+    for i in range(num_ims):
+        mat = io.loadmat(os.path.join(psf_dir, f"lri_psf_calib_{i}.mat"))
+        psf_data.append(mat["psf_data"])
+
+    return np.stack(psf_data, 0)

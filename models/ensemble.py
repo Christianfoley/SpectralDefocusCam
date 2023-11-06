@@ -15,8 +15,5 @@ class MyEnsemble(nn.Module):
         self.output1 = self.model1(x)
         self.output2 = self.model2(self.output1)
 
-        # note: broken with lambda != 30
-        if self.model1.pad:
-            self.output2 = self.output2[:, 1:-1, :, :]
-
+        self.output2 = self.output2[:, 1:-1, :, :]
         return self.output2

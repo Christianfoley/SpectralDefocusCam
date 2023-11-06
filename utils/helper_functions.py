@@ -84,6 +84,7 @@ def plotf2(r, img, ttl, sz):
     plt.axis("off")
     fig = plt.gcf()
     fig.set_size_inches(sz)
+    fig.set_dpi(100)
     plt.show()
     # display(fig)
     # clear_output(wait=True)

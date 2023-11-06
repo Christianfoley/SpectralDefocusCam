@@ -33,18 +33,40 @@ import models.LCNF.mlp
 
 
 def get_model(config, device):
+    """
+    Constructs a model from the given forward and recon model params. If data_precomputed
+    is true, forward model will be "passthrough".
+
+    Parameters
+    ----------
+    config : dict
+        config dictionary with model hyperparams
+    device : torch.Device
+        device to place models on
+
+    Returns
+    -------
+    torch.nn.Module
+        "ensemble" wrapper model for forward and recon models
+    """
     fm_params = config["forward_model_params"]
     rm_params = config["recon_model_params"]
     rm_params["num_measurements"] = fm_params["stack_depth"]
-    rm_params["blur_stride"] = fm_params["blur_stride"]
+    rm_params["blur_stride"] = fm_params["psf"]["stride"]
 
     # forward model
-    mask = load_mask(path=config["mask_dir"], patch_size=config["patch_size"])
-    forward_model = fm.Forward_Model(
+    mask = load_mask(
+        path=config["mask_dir"],
+        patch_crop_center=config["image_center"],
+        patch_crop_size=config["patch_crop"],
+        patch_size=config["patch_size"],
+    )
+    forward_model = fm.ForwardModel(
         mask,
         params=fm_params,
-        cuda_device=device,
         psf_dir=config["psf_dir"],
+        passthrough=config["data_precomputed"],
+        device=device,
     )
     forward_model.init_psfs()
 
@@ -80,6 +102,20 @@ def get_model(config, device):
 
 
 def get_save_folder(config):
+    """
+    Helper function for creating a save folder timestamped with beginning
+    of model training.
+
+    Parameters
+    ----------
+    config : dict
+        training config
+
+    Returns
+    -------
+    str
+        path to save folder
+    """
     # specify training checkpoints
     config_filename = os.path.basename(config["config_fname"])
     save_folder = os.path.join(
@@ -95,49 +131,102 @@ def get_save_folder(config):
 
 
 def evaluate(model, dataloader, loss_function, device):
+    """
+    Evaluation (validation) procedure for model.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        model to run validation with
+    dataloader : torch.data.utils.Dataloader
+        validation dataloader
+    loss_function : fn
+        loss function
+    device : torch.Device
+        device
+
+    Returns
+    -------
+    tuple(float, np.ndarray, np.ndarray)
+        tuple of the validation set loss, and an example input and prediction
+    """
     model.eval()
     val_loss = 0
-    sample_np = None
     for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
-        sample_np = sample["image"].numpy()[0]
-        output = model(sample["image"].to(device))  # Compute the output image
-        loss = loss_function(output, sample["image"].to(device))  # Compute the loss
+        output = model(sample["input"].to(device))
+        loss = loss_function(output, sample["image"].to(device))
         val_loss += loss.item()
 
     val_loss = val_loss / dataloader.__len__()
-    test_np = output.detach().cpu().numpy()[0]
+
+    gt_np = sample["image"].detach().cpu().numpy()[0]
+    in_np = sample["input"].detach().cpu().numpy()[0]
+    recon_np = output.detach().cpu().numpy()[0]
 
     model.train()
-    return val_loss, test_np, sample_np
+    return val_loss, in_np, recon_np, gt_np
 
 
-def generate_plot(test, gt, opt_path, fc_scaling=[0.9, 0.74, 1.12]):
+def generate_plot(model_input, recon, gt, opt_path, fc_scaling=[0.9, 0.74, 1.12]):
     """
-    Generate a plot of recon next to ground truth in false color. Also plots
-    a random pixel spectral response from the gt and test
-    """
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    Visualization utility for tensorboard logging. Generates a plot of recon next
+    to ground truth in false color. Also plots a random pixel spectral response
+    from the gt and recon.
 
+    Parameters
+    ----------
+    recon : np.ndarray
+        reconstructed hyperspectral image (model output) (c, y, x)
+    gt : np.ndarray
+        ground truth hyperspectral data (model input) (c, y, x)
+    opt_path : str
+        path to the false color calibration data
+    fc_scaling : list, optional
+        list of RGB weightings for false color image, by default [0.9, 0.74, 1.12]
+
+    Returns
+    -------
+    plt.Figure
+        matplotlib figure to log to tensorboard
+    """
+    fig, ax = plt.subplots(1, 4, figsize=(20, 5))
+    fig.set_dpi(70)
+
+    # strip channel and batch dimensions (select first)
+    while len(model_input.shape) > 3:
+        model_input = model_input[0]
+    while len(recon.shape) > 3:
+        recon = recon[0]
+    while len(gt.shape) > 3:
+        gt = gt[0]
+
+    input_fc = helper.stack_rgb_opt_30(
+        model_input.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
+    )
     pred_fc = helper.stack_rgb_opt_30(
-        test.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
+        recon.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
     )
     samp_fc = helper.stack_rgb_opt_30(
         gt.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
     )
+    input_fc = helper.value_norm(input_fc)
     pred_fc = helper.value_norm(pred_fc)
     samp_fc = helper.value_norm(samp_fc)
 
-    ax[0].imshow(pred_fc)
-    ax[0].set_title("reconstructed")
+    ax[0].imshow(input_fc, vmax=np.percentile(input_fc, 95))
+    ax[0].set_title("input")
 
-    ax[1].imshow(samp_fc)
-    ax[1].set_title("ground truth")
+    ax[1].imshow(pred_fc, vmax=np.percentile(pred_fc, 95))
+    ax[1].set_title("reconstructed")
 
-    y = np.random.randint(0, test.shape[1])
-    x = np.random.randint(0, test.shape[2])
-    ax[2].plot(test[:, y, x], color="red", label="prediction")
-    ax[2].plot(gt[:, y, x], color="blue", label="ground_truth")
-    ax[2].set_title(f"spectral response: pixel {(y,x)}")
+    ax[2].imshow(samp_fc, vmax=np.percentile(samp_fc, 95))
+    ax[2].set_title("ground truth")
+
+    y = np.random.randint(0, recon.shape[1])
+    x = np.random.randint(0, recon.shape[2])
+    ax[3].plot(recon[:, y, x], color="red", label="prediction")
+    ax[3].plot(gt[:, y, x], color="blue", label="ground_truth")
+    ax[3].set_title(f"spectral response: pixel {(y,x)}")
     plt.legend()
     plt.tight_layout()
 
@@ -156,6 +245,32 @@ def run_training(
     device,
     plot=True,
 ):
+    """
+    Training procedure for model.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        model to run training on
+    config : dict
+        training config params
+    train_dataloader : torch.data.utils.Dataloader
+        dataloader for training split
+    val_dataloader : torch.data.utils.Dataloader
+        dataloader for validation split
+    loss_function : fn
+        loss function
+    optimizer : torch.optim.Optimizer
+        optimizer
+    lr_scheduler : torch.optin.lr_scheduler
+        learning rate scheduler for optimizer
+    save_folder : str
+        folder to save training logs and checkpoints to
+    device : torch.Device
+        device to run training on
+    plot : bool, optional
+        whether to provide plots in tensorboard logs, by default True
+    """
     early_stopper = stopping.EarlyStopping(
         path=save_folder,
         patience=config["early_stopping_patience"],
@@ -170,17 +285,16 @@ def run_training(
     train_loss_list = []
     logged_graph = False
     for i in tqdm.tqdm(range(config["epochs"]), desc="Epochs", position=0):
-        dl_time = 0
-        inf_time = 0
-        prop_time = 0
-        train_loss = 0
+        dl_time, inf_time, prop_time, train_loss = 0, 0, 0, 0
         mark = time.time()
         for sample in tqdm.tqdm(train_dataloader, desc="iters", position=1, leave=0):
             dl_time += time.time() - mark
             mark = time.time()
 
+            y, x = sample["image"], sample["input"]
+
             # Compute the output image
-            output = model(sample["image"].to(device))
+            output = model(sample["input"].to(device))
             inf_time += time.time() - mark
             mark = time.time()
 
@@ -189,12 +303,12 @@ def run_training(
             train_loss += loss.item()
 
             # Update the model
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            optimizer.zero_grad()
 
             # Enforce a physical constraint on the blur parameters
-            if model.model1.optimize_blur:
+            if model.model1.psf["optimize"]:
                 model.model1.w_blur.data = torch.clip(
                     model.model1.w_blur.data, 0.0006, 1
                 )
@@ -207,7 +321,7 @@ def run_training(
 
         # running validation
         if i % config["validation_stride"] == 0:
-            val_loss, test_np, ground_truth_np = evaluate(
+            val_loss, input_np, recon_np, ground_truth_np = evaluate(
                 model, val_dataloader, loss_function, device=device
             )
             val_loss_list.append(val_loss)
@@ -215,7 +329,8 @@ def run_training(
 
             if plot:
                 fig = generate_plot(
-                    test_np,
+                    input_np,
+                    recon_np,
                     ground_truth_np,
                     opt_path=config["false_color_mat_path"],
                 )
@@ -242,7 +357,7 @@ def run_training(
         writer.add_scalar("validation loss", val_loss_list[-1], global_step=i)
         writer.add_scalar("learning rate", optim_utils.get_lr(optimizer), global_step=i)
         if not logged_graph:
-            writer.add_graph(model, sample["image"].to(device), verbose=False)
+            writer.add_graph(model, sample["input"].to(device), verbose=False)
             logged_graph = True
 
         # Getting some error when adding a histogram. Using a scalar to log for now
@@ -264,7 +379,6 @@ def run_training(
                     "w_list": w_list,
                 },
             )
-
             break
 
     scipy.io.savemat(
@@ -295,8 +409,8 @@ def main(config):
 
     # init data and model
     print("Loading data...", end="")
-    if config["forward_model_params"]["sim_meas"]:
-        train_loader, val_loader, test_loader = ds.get_data(
+    if not config["data_precomputed"]:
+        train_loader, val_loader, _ = ds.get_data(
             config["batch_size"],
             config["data_partition"],
             config["base_data_path"],
@@ -304,11 +418,12 @@ def main(config):
             config["num_workers"],
         )
     else:
-        train_loader, val_loader, test_loader = pre_ds.get_data_precomputed(
+        train_loader, val_loader, _ = pre_ds.get_data_precomputed(
             config["batch_size"],
-            config["precomp_meas_path"],
-            config["patch_size"],
+            config["data_partition"],
+            config["base_data_path"],
             config["num_workers"],
+            config["forward_model_params"],
         )
     print(
         f"Done! {len(train_loader)} training samples, {len(val_loader)} validation samples"

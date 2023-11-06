@@ -1,0 +1,62 @@
+# example config for training
+
+# data paths
+checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
+psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/10_26/multipos/alignment_psfs_telecent25um_10_26/dim384_3focus"
+base_data_path: "/home/cfoley_waller/defocam/defocuscamdata/sample_data_preprocessed_lri_11_4"
+false_color_mat_path: "/home/cfoley_waller/defocam/SpectralDefocusCam/utils/false_color_calib.mat"
+mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_full_10_18_2023_NEW_exp25.64ms_gain14.9_navg16_378-890/calibration_matrix.mat"
+
+# model params
+device: 2
+data_precomputed: True
+forward_model_params:
+  stack_depth: 3
+  psf:
+    lri: True
+    stride: 1
+    symmetric: True
+    optimize: False
+    padded_shape: [384, 384]
+    norm_each: True
+  operations:
+    sim_blur: False
+    sim_meas: True
+    adjoint: True
+    spectral_pad: True
+    roll: False
+  
+recon_model_params:
+  model_name: "unet" # "r2attunet"
+
+# training params
+epochs: 300
+batch_size: 4
+patch_size: [256, 256]
+patch_crop: [768, 768]
+image_center: [1050, 2023] # also the center for mask
+num_workers: 6
+data_partition: ["harvard","fruit","pavia"] # train, val, test
+early_stopping_patience: 35
+loss_function: 
+  name: "mse" # mse, mae, cossim, lpips, psnr, ssim
+  params: 
+optimizer: 
+  name: "adam" # adam, sgd, adagrad, rmsprop
+  params: # kwargs
+    lr: 0.0002
+    # weight_decay: 0.002
+lr_scheduler: 
+  name: "warm_cosine_anneal" # warm_cosine_anneal, exponential, plateau
+  params: 
+    T_0: 15
+
+# restarting from checkpoint
+preload_weights: False
+checkpoint_dir: ""
+offset: 0
+
+# other params
+log_grads: False
+validation_stride: 3
+checkpoint_stride: 3

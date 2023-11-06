@@ -116,7 +116,9 @@ def get_calib_info(calib_image, dim, fit_params):
             coord_list += [(raw_coord[i, 1] - center[1], center[0] - raw_coord[i, 0])]
 
     calib_image[calib_image < 0] = 0
-    calib_image[calib_image < np.quantile(calib_image, 0.99)] = 0
+    calib_image[
+        calib_image < np.quantile(calib_image, fit_params["threshold_quantile"])
+    ] = 0
     calib_image = (calib_image / calib_image.sum()) * len(coord_list)
 
     return coord_list, calib_image
