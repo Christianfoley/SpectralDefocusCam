@@ -1,4 +1,5 @@
 import torch.nn.functional as F
+import os, tqdm
 import numpy as np
 import torch
 import torch.optim
@@ -77,7 +78,7 @@ def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
     Crutch function to perform 2d ring convolution on every 2d slice in a
     batched hyperspectral blur stack.
 
-    Note that if the psf batch is too large in y and x, the batch's x and y dimensions
+    Note that if the psf batch is too large in r and h, the batch's x and y dimensions
     will be upsampled to match
 
     Parameters
@@ -85,7 +86,7 @@ def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
     batch : torch.Tensor
         5d tensor of shape (batch, n_blur, channel, y, x)
     psfs : torch.Tensor
-        4d tensor of shape (n_blur, y, psfs, x)
+        4d tensor of shape (n_blur, r, theta, h)
     device : torch.device, optional
         device, by default cpu
 
@@ -94,29 +95,20 @@ def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
     torch.Tensor
         blurred batch
     """
-    # TODO find a better way to do this (maybe reimplementing blur.py)
     assert len(batch.shape) == 5, "batch must be of shape b, n, c, y, x"
-    assert len(psfs.shape) == 4, "psf data must be of shape n, c, y, x"
+    assert len(psfs.shape) == 4, "psf data must be of shape n, r, theta, h"
 
     # fix size mismatch issue (we upsample to psfs->conv->downsample back)
     batch = batch.type(torch.float32)
     batch, output_size = rescale_to_psfs(batch, (psfs.shape[1], psfs.shape[3]))
 
-    batch_stack = []
-    for b in range(batch.shape[0]):
-        blur_stack = []
-        for n in range(psfs.shape[0]):
-            channel_stack = []
-            for c in range(batch.shape[2]):
-                blurred = blur.ring_convolve(
-                    batch[b, min(n, batch.shape[1] - 1), c], psfs[n], device=device
-                )
-                channel_stack.append(blurred)
-            blur_stack.append(torch.stack(channel_stack, 0))
-        batch_stack.append(torch.stack(blur_stack, 0))
-    batch = torch.stack(batch_stack, 0)
+    convolved_batch = torch.zeros_like(batch, device=device)
+    for n in range(batch.shape[1]):
+        convolved_batch[:, n, ...] = blur.batch_ring_convolve(
+            batch[:, n, ...], psfs[n], device=device
+        )
 
-    batch, _ = rescale_to_psfs(batch, output_size)
+    batch, _ = rescale_to_psfs(convolved_batch, output_size)
     return batch
 
 
@@ -159,6 +151,58 @@ def load_mask(
 
         mask = nm(mask)
     return mask
+
+
+def process_mat_files(input_directory, output_directory, overwrite=True):
+    """
+    Process .mat files from the input directory, extracting the 'image' array and saving it as a new .mat file in the output directory.
+
+    Parameters
+    ----------
+    input_directory : str
+        Path to the directory containing .mat files.
+
+    output_directory : str
+        Path to the directory where the processed files will be saved.
+
+    overwrite : bool, optional
+        Controls whether to overwrite existing files in the output directory. Defaults to True.
+
+    Notes
+    -----
+    - setting 'overwrite' to true allows file or entire directory overwriting, be careful!
+    """
+    if input_directory == output_directory and not overwrite:
+        print("Cannot overwrite same directory unless overwrite flag is true")
+        return
+
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+
+    files = os.listdir(input_directory)
+
+    for file in tqdm.tqdm(files):
+        if file.endswith(".mat"):
+            file_path = os.path.join(input_directory, file)
+            output_file_path = os.path.join(output_directory, file)
+
+            # Check if the file already exists in the output directory
+            if os.path.exists(output_file_path) and not overwrite:
+                print(
+                    f"File {file} already exists in the output directory. Skipping..."
+                )
+                continue
+            try:
+                data = scipy.io.loadmat(file_path)
+            except Exception as e:
+                print(f"Failed to load {file_path}\n{e}")
+                continue
+
+            if "image" in data:
+                image_array = data["image"]
+                new_dict = {"image": image_array}
+
+                scipy.io.savemat(output_file_path, new_dict)
 
 
 def flip_channels(image):
@@ -214,6 +258,10 @@ def roll_n(X, axis, n):
     front = X[f_idx]
     back = X[b_idx]
     return torch.cat([back, front], axis)
+
+
+def get_radius(y, x):
+    return (y**2 + x**2) ** (1 / 2)
 
 
 ###### Complex operations ##########

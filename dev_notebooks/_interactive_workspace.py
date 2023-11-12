@@ -8,8 +8,9 @@ import numpy as np
 import scipy.io as io
 import tqdm
 
+#
 sys.path.insert(0, "/home/cfoley_waller/defocam/SpectralDefocusCam")
-
+# %%
 from utils.psf_calibration_utils import get_psfs_dmm_37ux178, get_lsi_psfs
 import utils.psf_calibration_utils as psf_utils
 
@@ -96,10 +97,10 @@ for exp in exposures:
         + "_gain14.9_navg16_378-890"
     )
     channs = [
-        Image.open(im) for im in glob.glob(os.path.join(calib_matrix_dir, "*.bmp"))
+        Image.open(im)
+        for im in sorted(glob.glob(os.path.join(calib_matrix_dir, "*.bmp")))
     ]
     matrix = np.stack(channs, axis=0).transpose(1, 2, 0)
-
     matrix = {"mask": matrix, "dtype": str(matrix.dtype)}
     io.savemat(os.path.join(calib_matrix_dir, "calibration_matrix.mat"), matrix)
 # %%

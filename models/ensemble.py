@@ -15,5 +15,6 @@ class MyEnsemble(nn.Module):
         self.output1 = self.model1(x)
         self.output2 = self.model2(self.output1)
 
-        self.output2 = self.output2[:, 1:-1, :, :]
+        if self.model1.operations["spectral_pad"]:
+            self.output2 = self.output2[:, 1:-1, :, :]
         return self.output2

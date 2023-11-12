@@ -1,7 +1,7 @@
 # utils for experimental psfs
 import sys, glob, os, tqdm
 import numpy as np
-import scipy.io as io
+from scipy import io, ndimage, signal
 import torch
 import cv2
 from skimage import feature, morphology
@@ -20,15 +20,18 @@ def one_normalize(im):
     return im / np.max(im)
 
 
-def thresh(psf, proportion_of_max=0.33, use_otsu=False):
+def thresh(psf, quantile=0.33, use_otsu=False):
     if use_otsu:
         blur = cv2.GaussianBlur(psf, (5, 5), 0)
         mask = cv2.threshold(
-            blur, np.max(blur) / 3, np.max(blur), cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            blur,
+            np.quantile(blur, quantile),
+            np.max(blur),
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU,
         )[1]
         return psf * mask
     else:
-        return psf * (psf > (np.max(psf) * proportion_of_max))
+        return psf * np.where(psf > np.quantile(psf, quantile), 1, 0)
 
 
 def denoise_speckle(img, thresh_val=None):
@@ -70,6 +73,23 @@ def center_pad_to_shape(psfs, shape, val=0):
     return psfs
 
 
+def center_crop_to_shape(psfs, shape):
+    # Calculate the differences in dimensions
+    diff_y = psfs.shape[1] - shape[0]
+    diff_x = psfs.shape[2] - shape[1]
+
+    # Calculate crop amounts for top, bottom, left, and right
+    crop_top = diff_y // 2
+    crop_bottom = diff_y - crop_top
+    crop_left = diff_x // 2
+    crop_right = diff_x - crop_left
+
+    # Perform cropping
+    cropped_psfs = psfs[:, crop_top:-crop_bottom, crop_left:-crop_right]
+
+    return cropped_psfs
+
+
 def center_crop_psf(psf, width, shape="square", center_offset=None, kernel_size=7):
     # pad to allow larger crop
     padding = (
@@ -79,12 +99,12 @@ def center_crop_psf(psf, width, shape="square", center_offset=None, kernel_size=
     psf = np.pad(psf, padding)
 
     if center_offset is None:
-        # blur for more accurate center
-        psf_conv = blur = cv2.GaussianBlur(psf, (kernel_size, kernel_size), 0)
-        # kernel = get_guassian_kernel(15)
+        # blur for center of mass
+        psf = psf * np.where(psf > np.quantile(psf, 0.75), psf, 0)
+        psf_conv = cv2.GaussianBlur(psf, (kernel_size, kernel_size), 0)
+        # kernel = get_circular_kernel(kernel_size)
         # psf_conv = signal.correlate(psf, kernel, mode="same")
 
-        # get coords of max
         max_index = np.argmax(psf_conv)
         max_coords = np.unravel_index(max_index, psf.shape)
     else:
@@ -181,11 +201,11 @@ def superimpose_psfs(psf_list, focus_levels=1, one_norm=True):
         return supimp_imgs
 
 
-def view_coef_psfs(
+def view_coef_psf_rings(
     coeffs,
     dim=256,
     circle_radii=[0, 50, 100, 150, 200],
-    points_per_ring=8,
+    points_per_ring=24,
     device=torch.device("cpu"),
 ):
     """
@@ -198,8 +218,8 @@ def view_coef_psfs(
         seidel coefficients (6,1)
     circle_radii : list, optional
         list of radii, by default [0, 50, 100]
-    points_per_ring : int
-        points per radius
+    points_per_ring : int, optional
+        points per radius, by default 24
     device : torch.device, optional
         device to compute psfs on, by default torch.device("cpu")
     """
@@ -217,6 +237,67 @@ def view_coef_psfs(
         device=device,
     )
     return torch.sum(torch.stack(psfs, 0), 0).cpu().numpy()
+
+
+def view_patched_psf_rings(
+    psf_patches, psf_coordinates, dim=256, psf_dim=64, points_per_ring=24, threshold=0.7
+):
+    """
+    Return an image of circles of rotates psf patches around their radii.
+
+    Parameters
+    ----------
+    psf_patches : list
+        list of cropped psf patches (assumed centered)
+    psf_coordinates : list
+        list of tuples of coordinates for each psf patch
+    dim : int, optional
+        output dimension in y and x of image (square only)
+    psf_dim : int, optional
+        maximum size of signal around psf coordinate
+    points_per_ring : int, optional
+        rotated psf examples to display per psf, by default 24
+    threshold : float
+        psf mask threshold (by quantile) for preprocessing
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+
+    def process_patch(patch, coords):
+        patch = patch.copy()
+        patch = patch[
+            coords[0] - psf_dim // 2 : coords[0] + psf_dim // 2,
+            coords[1] - psf_dim // 2 : coords[1] + psf_dim // 2,
+        ]
+        patch = thresh(one_normalize(patch), quantile=threshold)
+        return patch
+
+    centered_coords = [(c[0] - dim // 2, c[1] - dim // 2) for c in psf_coordinates]
+    radii = [diffuser_utils.get_radius(*c) for c in centered_coords]
+
+    circ_points = []
+    for r in radii:
+        ppr = points_per_ring
+        if r == 0:
+            ppr = 1
+        circ_points.append(util.getCircList((0, 0), radius=r, num_points=ppr))
+
+    rotated_psfs = np.zeros((len(circ_points) * len(circ_points[0]), dim, dim))
+    for i in tqdm.tqdm(range(len(circ_points)), "Rendering rings"):
+        for j, point in enumerate(circ_points[i]):
+            rotated_psfs[i * len(circ_points[0]) + j] = rotate_psf(
+                process_patch(psf_patches[i], psf_coordinates[i]),
+                centered_coords[i],
+                point,
+                dim,
+            )
+
+    rotated_psfs = np.sum(rotated_psfs, 0)
+
+    return rotated_psfs
 
 
 ##### ---------- alignment axis calibration ---------- #####
@@ -263,20 +344,150 @@ def find_all_intersections(points, vectors):
     return intersections
 
 
-def get_point_coords(calib_image, min_dist=30, threshold=0.5):
-    """Credit to https://github.com/apsk14/rdmpy"""
-    psf = calib_image.copy()
-    psf[psf < 0] = 0
-    psf[psf < np.quantile(psf, 0.9)] = 0
+def radial_subdivide(psf_coords, sys_center, maxval=None, return_radii=False):
+    """
+    Return a list of radial subdivision boundaries for each psf focus level given in
+    psf_coords. Subdivisions are halfway between psf radii.
 
-    # locate local intensity peaks
-    raw_coord = feature.corner_peaks(
-        morphology.erosion(psf, morphology.disk(2)),
-        min_distance=min_dist,
-        indices=True,
-        threshold_rel=threshold,
-    )
-    return raw_coord.tolist()  # coord_list
+    Parameters
+    ----------
+    psf_coords : list
+        list of list of coordinates for psfs at each focus level
+    sys_center : tuple(int, int)
+        estimate for center of system (to calculate radii from  )
+    maxval : float, optional
+        maximum radial value, by default None
+    return_radii : False
+        whether to also return radii
+
+    Returns
+    -------
+    list
+        list of lists of radial subdivision boundaries
+    """
+    subdivisions = []
+    radii = []
+
+    # get radii and subdivide
+    for i in range(len(psf_coords)):
+        radii_i = [
+            diffuser_utils.get_radius(
+                coord[0] - sys_center[0], coord[1] - sys_center[1]
+            )
+            for coord in psf_coords[i]
+        ]
+        subdivisions_i = [
+            (radii_i[j] + radii_i[j - 1]) // 2 for j in range(1, len(radii_i))
+        ]
+
+        subdivisions.append(subdivisions_i)
+        radii.append(sorted(radii_i))
+
+    if return_radii:
+        return subdivisions, radii
+    return subdivisions
+
+
+def rotate_psf(psf, source_pos, end_pos, dim):
+    """
+    Given an (assumed centered) psf patch, computes a rotated psf image of
+    dimension dim.
+
+    Parameters
+    ----------
+    psf : np.ndarray
+        assumede centered psf patch (y, x)
+    source_pos : tuple(int, int)
+        original position of psf (relative to system center)
+    end_pos : tuple(int, int)
+        final position of psf (relative to system center)
+    dim : int
+        output dimension in y and x of image (square only)
+
+    Returns
+    -------
+    np.ndarray
+        image of size (dim,dim) containing rotated psf
+    """
+    # Pad psf to avoid cutting off in rotation
+    psf_s = psf.shape
+    psf = center_pad_to_shape(np.expand_dims(psf, 0), (psf_s[0] * 2, psf_s[1] * 2))[0]
+
+    # Calculate the rotation angle if the patch makes a polar translation
+    if np.any(np.array(source_pos) != np.array(end_pos)):
+        get_rad = lambda x: np.arctan2(x[0], x[1])
+        theta = get_rad(source_pos) - get_rad(end_pos)
+        rot_psf = ndimage.rotate(psf, np.degrees(theta), reshape=False)
+    else:
+        rot_psf = psf
+
+    # Place rotated patch onto output img
+    out_img = np.zeros((dim * 2, dim * 2))
+    end_pos = (end_pos[0] + dim, end_pos[1] + dim)  # center -> corner
+    out_img[
+        end_pos[0] - psf.shape[0] // 2 : end_pos[0] + psf.shape[0] // 2,
+        end_pos[1] - psf.shape[1] // 2 : end_pos[1] + psf.shape[1] // 2,
+    ] += rot_psf
+    out_img = center_crop_to_shape(np.expand_dims(out_img, 0), (dim, dim))[0]
+    return out_img
+
+
+def get_psf_coords(
+    psfs,
+    focus_levels,
+    method="conv",
+    ksizes=[7, 21, 45],
+    threshold=0.7,
+    min_distance=12,
+):
+    """
+    Compute the coordinate locations of each psf in the provided psfs and return
+    grouped by focus level
+
+    Parameters
+    ----------
+    psfs : list(np.ndarray)
+        list of single-psf images (many) or superimposed psf images (one / focus level)
+    focus_levels : int
+        number of different focus levels (if using a list of psfs)
+    method : str, optional
+        whether to use peaks or convolution for point localization, by default "conv"
+    ksizes : list, optional
+        list of convolutional kernel sizes, by default [7, 21, 45]
+    threshold : float
+        threshold for corner peaks thresholding
+    min_distance : float
+        min distance between two psfs (if method == "peaks")
+
+
+    Returns
+    -------
+    list
+        list of lists containing psf locations for each focus level
+    """
+    tqdmify = lambda x: list(enumerate(x))  # ;)
+    coords = [[] for i in range(focus_levels)]
+    if method == "conv":
+        for i, psf in tqdm.tqdm(tqdmify(psfs), desc="Centering", file=sys.stdout):
+            psf = psf.copy()
+            psf[psf < np.quantile(psf, threshold)] = 0
+            ks = ksizes[i % focus_levels]
+            coords[i % focus_levels].append(center_crop_psf(psf, 64, kernel_size=ks)[1])
+    elif method == "peaks":
+        for f in tqdm.tqdm(range(focus_levels), desc="Centering", file=sys.stdout):
+            calib_image = psfs[f].copy()
+            calib_image[calib_image < np.quantile(calib_image, threshold)] = 0
+
+            # locate local intensity peaks
+            raw_coord = feature.corner_peaks(
+                morphology.erosion(psf, morphology.disk(2)),
+                min_distance=min_distance,
+                indices=True,
+                threshold_rel=0.5,
+            )
+            coords[f] += raw_coord.tolist()
+
+    return coords
 
 
 def estimate_alignment_center(
@@ -286,7 +497,7 @@ def estimate_alignment_center(
     vector_foc_idx=1,
     coord_method="peaks",
     estimate_method="median",
-    conv_kern_sizes=[7, 15, 21],
+    conv_kern_sizes=[7, 21, 45],
     crop=None,
     verbose=True,
     plot=True,
@@ -323,20 +534,16 @@ def estimate_alignment_center(
     assert coord_method in ["conv", "peaks"], "coord_method not in {'conv', 'peaks'}"
 
     # read an preprocess measurements
-    psfs = list(enumerate(read_psfs(psfs_path, crop=crop)))
+    psfs = read_psfs(psfs_path, crop=crop)
     if verbose:
         print(f"Found {len(psfs)} psf measurements.")
 
     # get coordinates of points at each focus level
-    supimp_psfs = superimpose_psfs([tup[1] for tup in psfs], focus_levels)
-    coords = [[] for i in range(focus_levels)]
+    supimp_psfs = superimpose_psfs(psfs, focus_levels)
     if coord_method == "conv":
-        for i, psf in tqdm.tqdm(psfs, desc="Get centers", file=sys.stdout):
-            ks = conv_kern_sizes[i % focus_levels]
-            coords[i % focus_levels].append(center_crop_psf(psf, 64, kernel_size=ks)[1])
-    elif coord_method == "peaks":
-        for f in tqdm.tqdm(range(focus_levels), desc="Get centers", file=sys.stdout):
-            coords[f] += get_point_coords(supimp_psfs[f])
+        coords = get_psf_coords(psfs, focus_levels, coord_method, conv_kern_sizes)
+    else:
+        coords = get_psf_coords(supimp_psfs, focus_levels, coord_method)
 
     # get anchor points and vectors
     get_vec = lambda ini, fin: np.array([fin[0] - ini[0], fin[1] - ini[1]])
@@ -388,15 +595,43 @@ def estimate_alignment_center(
 
 
 def get_psfs_dmm_37ux178(
-    psf_dir="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/psfs_10_18_2023_new_noiseavg32",
+    psf_dir,
     ext=[".bmp", ".tiff"],
-    scale=False,
-    threshold=False,
     center_crop_width=128,
     center_crop_shape="square",
+    kernel_sizes=None,
     usefirst=False,
     blurstride=1,
 ):
+    """
+    Utility function for getting LSI psfs captured on a DMM_37UX178 sony cmos sensor.
+    Reads, locates, thresholds, and crops psf measurements. Returns as list of numpy
+    arrays.
+
+    Parameters
+    ----------
+    psf_dir : str, optional
+        path to psf dir containing list of psf measurements at different focus levels
+    ext : list, optional
+        file extension of psf measurements, by default [".bmp", ".tiff"]
+    center_crop_width : int, optional
+        width of cropped chunk (centered on center of psf), if 0 will not crop, by default 128
+    center_crop_shape : str, optional
+        shape to crop, one of {'circle', 'square'}, by default "square"
+    kernel_sizes : list, optional
+        size of convolutional kernels used to find center of psf at each blur level
+    usefirst : bool, optional
+        whether to center all psfs around position of first (assumes invariant distortion),
+        by default False
+    blurstride : int, optional
+        stride to sample blur levels, by default 1
+
+
+    Returns
+    -------
+    list
+        list of centered psf measurements as number arrays of shape (width, width)
+    """
     psfs = []
     filenames = glob.glob(os.path.join(psf_dir, "*" + ext[0])) + glob.glob(
         os.path.join(psf_dir, "*" + ext[1])
@@ -414,21 +649,29 @@ def get_psfs_dmm_37ux178(
 
     # crop with offset
     if center_crop_width > 0:
-        psfs = [
-            center_crop_psf(psf, center_crop_width, center_crop_shape, offset)[0]
-            for psf in psfs
-        ]
-    if scale:
-        psfs = [psf / 255 for psf in psfs]
-
-    if threshold:
-        psfs = [thresh(psf) for psf in psfs]
+        cropped = []
+        for i, psf in enumerate(psfs):
+            ksize = 7
+            if kernel_sizes is not None:
+                ksize = kernel_sizes[i]
+            cropped.append(
+                center_crop_psf(
+                    psf, center_crop_width, center_crop_shape, offset, ksize
+                )[0]
+            )
+        psfs = cropped
 
     return psfs
 
 
 def get_lsi_psfs(
-    psf_dir, num_ims, mask_shape, padded_shape, one_norm=True, blurstride=1
+    psf_dir,
+    num_ims,
+    mask_shape,
+    padded_shape,
+    one_norm=True,
+    threshold=0.7,
+    blurstride=1,
 ):
     stack_xy_shape = mask_shape[-2:]
     psfs = get_psfs_dmm_37ux178(
@@ -437,13 +680,15 @@ def get_lsi_psfs(
         center_crop_shape="square",
         usefirst=True,
         blurstride=blurstride,
-    )
+    )[:num_ims]
 
     # normalize
     if one_norm:
-        psfs = psfs[0:num_ims]
-        masks = [np.where(sel > np.median(sel), 1, 0) for sel in psfs]
-        psfs = [one_normalize(sel * masks[i]) for i, sel in enumerate(psfs)]
+        psfs = [one_normalize(psf) for psf in psfs]
+
+    # threshold
+    if threshold:
+        psfs = [thresh(psf, quantile=threshold) for psf in psfs]
 
     # center pad -> downsample to specified mask shape
     psfs = [

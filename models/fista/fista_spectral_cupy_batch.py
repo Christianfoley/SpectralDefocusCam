@@ -230,4 +230,14 @@ class fista_spectral_numpy:
     def __call__(self, input):
         if isinstance(input, torch.Tensor):
             input = self.np.array(input.cpu().numpy())
-        return self.run(input[0, :, 0, :, :])  # Removing batch and chan dims
+
+        assert len(input.shape) in {4, 3}, "Only accepts meas stack, or batch of stacks"
+
+        if len(input.shape) == 4:
+            output = np.stack(
+                [self.run(input[i, ...])[0] for i in range(input.shape[0])], 0
+            )
+        else:
+            output = self.run(input)[0]
+
+        return output

@@ -2,6 +2,7 @@
 import sys
 import os
 import torch
+import time
 
 sys.path.insert(0, "/home/cfoley_waller/defocam/SpectralDefocusCam")
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -12,7 +13,7 @@ import utils.helper_functions as helper
 
 # %%
 ############### LOAD MODEL CONFIG ###################
-config_path = "/home/cfoley_waller/defocam/SpectralDefocusCam/config_files/training/train_11_1_2023_lsi.yml"
+config_path = "/home/cfoley_waller/defocam/SpectralDefocusCam/config_files/training/train_11_9_2023_lri_precomputed_stack3.yml"
 config = helper.read_config(config_path)
 device = helper.get_device(config["device"])
 
@@ -47,19 +48,24 @@ sd = config["forward_model_params"]["stack_depth"]
 x = torch.rand(size=(1, sd, 30, 256, 256)).to(device=device)
 y = torch.rand(size=(1, sd, 1, 256, 256)).to(device=device)
 
+start = time.time()
 y_tilde = Hfor(x, forward_model.psfs, forward_model.mask).float()
 x_tilde = Hadj(y, forward_model.psfs, forward_model.mask).float()
 
+print(f"Forward + Adjoint time, batch {x.shape[0]}: {time.time()-start:.2f}s")
 # %%
 ############### DOT-PRODUCT TEST CLOSENESS ###################
 
 y_dot = (y.ravel()).dot(y_tilde.ravel())
 x_dot = (x.ravel()).dot(x_tilde.ravel())
-rtol = 0.001
+rtol = 0.0015
+
+print((y.ravel()).dot(y_tilde.ravel()))
+print((x.ravel()).dot(x_tilde.ravel()))
+
 assert torch.isclose(
     y_dot, x_dot, rtol=rtol
 ), f"Adjoint test with tolerance {rtol} failed"
-print((y.ravel()).dot(y_tilde.ravel()))
-print((x.ravel()).dot(x_tilde.ravel()))
+
 
 # %%

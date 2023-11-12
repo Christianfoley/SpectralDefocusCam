@@ -4,9 +4,11 @@ import numpy as np
 import torch
 import torch.fft as fft
 
-from ._src import opt, seidel, util
+from ._src import opt, seidel, util, polar_transform
 import pdb
 import gc
+
+import utils.psf_calibration_utils as psf_utils
 
 
 def calibrate_stack(
@@ -356,5 +358,41 @@ def get_psfs(
         )
         gc.collect()
         torch.cuda.empty_cache()
+
+    return psf_data
+
+
+def get_psfs_measured(
+    psfs,
+    dim,
+    verbose=False,
+    device=torch.device("cpu"),
+):
+    # default parameters which describe the optical system.
+    rs = np.linspace(0, (dim / 2), dim, endpoint=False, retstep=False)
+    point_list = [(r, -r) for r in rs]  # radial line of PSFs
+
+    if verbose:
+        print("rendering PSFs...")
+
+    psf_data = psf_utils.psf
+
+    # here compute the RoFT of each PSF in-place (torch.rfft is memory inefficient)
+    for i in range(psf_data.shape[0]):
+        temp_rft = fft.rfft(psf_data[i, 0:-2, :], dim=0)
+        psf_data[i, 0 : psf_data.shape[1] // 2, :] = torch.real(temp_rft)
+        psf_data[i, psf_data.shape[1] // 2 :, :] = torch.imag(temp_rft)
+
+    del temp_rft
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # add together the real and imaginary parts of the RoFTs
+    psf_data = (
+        psf_data[:, 0 : psf_data.shape[1] // 2, :]
+        + 1j * psf_data[:, psf_data.shape[1] // 2 :, :]
+    )
+    gc.collect()
+    torch.cuda.empty_cache()
 
     return psf_data

@@ -306,7 +306,7 @@ class ForwardModel(torch.nn.Module):
         return self.b
 
 
-def build_data_pairs(data_path, model):
+def build_data_pairs(data_path, model, batchsize=1):
     """
     Compute simulated system measurements for each .mat file's ground truth sample
     using the given forward model. Simulated measurements are stored in the same .mat
@@ -320,8 +320,8 @@ def build_data_pairs(data_path, model):
         path to data dir containing preprocessed .mat data files
     model : torch.nn.Module
         forward simulation model. Instance of ForwardModel
-    verbose : bool, optional
-        verbose, by default False
+    batchsize : int, optional
+        size for batching, by default 1
     """
     data_files = glob.glob(os.path.join(data_path, "*.mat"))
     model_params = {
@@ -332,7 +332,9 @@ def build_data_pairs(data_path, model):
     }
     key = str(model_params)
     desc = f"Generating Pair {os.path.basename(data_path)}"
-    for sample_file in tqdm.tqdm(data_files, desc=desc):
+    batch = []
+    img_shape = io.loadmat(data_files[0])["image"].shape
+    for i, sample_file in tqdm.tqdm(list(enumerate(data_files)), desc=desc):
         try:
             sample = io.loadmat(sample_file)
         except Exception as e:
@@ -343,8 +345,23 @@ def build_data_pairs(data_path, model):
         if len(list(sample.keys())) > 4:
             continue
 
-        ground_truth = np.expand_dims(np.transpose(sample["image"], (2, 0, 1)), (0, 1))
-        ground_truth = torch.tensor(ground_truth, device=model.device)
-        sample[key] = model(ground_truth).detach().cpu().numpy()
+        # handle batching
+        batch.append((sample_file, sample))
+        if len(batch) == batchsize or i == len(data_files) - 1:
+            # build batch
+            img_batch = torch.zeros((len(batch), 1, *img_shape), device=model.device)
+            for j, (_, sample) in enumerate(batch):
+                img_batch[j] = torch.tensor(np.expand_dims(sample["image"], 0)).to(
+                    model.device
+                )
 
-        io.savemat(sample_file, sample)
+            # infer
+            out_batch = model(img_batch.permute(0, 1, 4, 2, 3)).detach().cpu().numpy()
+
+            # save batch
+            for j, (samp_f, sample) in enumerate(batch):
+                sample[key] = out_batch[j]
+                io.savemat(samp_f, sample)
+
+            # extend
+            batch = []
