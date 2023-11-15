@@ -30,7 +30,7 @@ def ring_deconvolve(
     Parameters
     ----------
     image : np.ndarray or torch.Tensor
-        The image to be deconvolved. Must be (N,N).
+        The image to be deconvolved. Must be (N,N), (C,N,N), or (B,C,N,N).
 
     psf_roft : torch.Tensor
         The stack of PSFs to deconvolve the image with. The PSFs should be in the
@@ -68,7 +68,6 @@ def ring_deconvolve(
     https://arxiv.org/abs/2206.08928
 
     """
-
     if len(psf_roft.shape) != 3:
         raise ValueError("Ring deconvolution needs a radial stack of PSF RoFTs")
 
@@ -86,15 +85,13 @@ def ring_deconvolve(
     def_opt_params.update(opt_params)
 
     if process:
-        image = util.process(image, dim=image.shape) * 0.9
+        image = util.process(image, dim=image.shape[-2:]) * 0.9
 
     if not torch.is_tensor(image):
         image = torch.tensor(image)
-    if image.device is not device:
-        image = image.to(device)
 
     recon = opt.image_recon(
-        image.float(),
+        image.to(device).float(),
         psf_roft,
         model="lri",
         opt_params=def_opt_params,

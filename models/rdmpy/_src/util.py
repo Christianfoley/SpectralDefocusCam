@@ -518,10 +518,10 @@ def process(
     Parameters
     ----------
     img : np.ndarray
-        Image to be processed.
+        Images to be processed. Accepts inputs of size (N,N), (B,N,N), or (B,C,N,N).
 
     dim : tuple
-        Desired dimension of processed image.
+        Desired spatial dimensions of processed image, (D,D).
 
     back : np.ndarray, optional
         Background image to be subtracted from img.
@@ -550,12 +550,22 @@ def process(
         img = img - back
     img[img < 0] = 0
     img = img[
+        ...,
         center[0] - dim[0] // 2 : center[0] + dim[0] // 2,
         center[1] - dim[1] // 2 : center[1] + dim[1] // 2,
     ]
 
     if hot_pix:
-        _, img = find_outlier_pixels(img, tolerance=tolerance)
+        # TODO ugly and slow, reimplement with batching
+        if len(img.shape) == 3:
+            for b in img.shape[0]:
+                img[b] = find_outlier_pixels(img[b], tolerance=tolerance)[1]
+        elif len(img.shape) == 4:
+            for b in img.shape[0]:
+                for c in img.shape[1]:
+                    img[b, c] = find_outlier_pixels(img[b, c], tolerance=tolerance)[1]
+        else:
+            img = find_outlier_pixels(img, tolerance=tolerance)[1]
 
     if remove_outer:
         img = outer_ring(img)
@@ -577,10 +587,10 @@ def outer_ring(image):
     image : np.ndarray
         Processed image.
     """
-    image[0, :] = 0
-    image[-1, :] = 0
-    image[:, 0] = 0
-    image[:, -1] = 0
+    image[..., 0, :] = 0
+    image[..., -1, :] = 0
+    image[..., :, 0] = 0
+    image[..., :, -1] = 0
 
     return image
 

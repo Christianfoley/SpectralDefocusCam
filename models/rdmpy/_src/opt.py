@@ -353,7 +353,8 @@ def image_recon(
     Parameters
     ----------
     measurement : torch.Tensor
-        Measurement to be deblurred. Should be (N,N).
+        Measurement or batched measurement to be deblurred. Should be (N,N), (B,N,N), or (B,C,N,N).
+        Assumes B,C,N,N > 1, dims of length 1 are ignored.
 
     psf_data : torch.Tensor
         Stack of rotationatal Fourier transforms of the PSFs if model is 'lri',
@@ -380,7 +381,9 @@ def image_recon(
         Deblurred image. Will be (N,N).
 
     """
-    dim = measurement.shape
+    if model == "lri":
+        while len(measurement.shape) < 4:
+            measurement = measurement.unsqueeze(0)
 
     if warm_start is not None:
         estimate = warm_start.clone()
@@ -388,9 +391,9 @@ def image_recon(
         if opt_params["init"] == "measurement":
             estimate = measurement.clone()
         elif opt_params["init"] == "zero":
-            estimate = torch.zeros(dim, device=device)
+            estimate = torch.zeros_like(measurement, device=device)
         elif opt_params["init"] == "noise":
-            estimate = torch.randn(dim, device=device)
+            estimate = torch.randn_like(measurement, device=device)
         else:
             raise NotImplementedError
 
@@ -403,10 +406,13 @@ def image_recon(
     else:
         raise NotImplementedError
 
-    loss_fn = torch.nn.MSELoss()
-    crop = opt_params["crop"]
-
-    losses = []
+    if model == "lsi":
+        loss_fn = torch.nn.MSELoss()
+        crop = lambda x: x[..., crop:-crop, crop:-crop] if opt_params["crop"] > 0 else x
+    else:
+        loss_fn = StackwiseMSELossTV(
+            opt_params["tv_reg"], opt_params["l2_reg"], opt_params["crop"]
+        )
 
     if opt_params["plot_loss"]:
         losses = []
@@ -419,40 +425,16 @@ def image_recon(
         # forward pass and loss
         if model == "lsi":
             measurement_guess = blur.convolve(estimate, psf_data)
-            if crop > 0:
-                loss = (
-                    loss_fn(
-                        (measurement_guess)[crop:-crop, crop:-crop],
-                        (measurement)[crop:-crop, crop:-crop],
-                    )
-                    + tv(estimate[crop:-crop, crop:-crop], opt_params["tv_reg"])
-                    + opt_params["l2_reg"] * torch.norm(estimate)
-                )
-            else:
-                loss = (
-                    loss_fn(measurement_guess, measurement)
-                    + tv(estimate, opt_params["tv_reg"])
-                    + opt_params["l2_reg"] * torch.norm(estimate)
-                )
-        else:
-            measurement_guess = blur.ring_convolve(
-                estimate, psf_data, device=device, verbose=False
+            loss = (
+                loss_fn(crop(measurement_guess), crop(measurement))
+                + tv(crop(estimate), opt_params["tv_reg"])
+                + opt_params["l2_reg"] * torch.norm(estimate)
             )
-            if crop > 0:
-                loss = (
-                    loss_fn(
-                        (measurement_guess)[crop:-crop, crop:-crop],
-                        (measurement)[crop:-crop, crop:-crop],
-                    )
-                    + tv(estimate[crop:-crop, crop:-crop], opt_params["tv_reg"])
-                    + opt_params["l2_reg"] * torch.norm(estimate)
-                )
-            else:
-                loss = (
-                    loss_fn(measurement_guess, measurement)
-                    + tv(estimate, opt_params["tv_reg"])
-                    + opt_params["l2_reg"] * torch.norm(estimate)
-                )
+        else:
+            measurement_guess = blur.batch_ring_convolve(
+                estimate, psf_data, device=device
+            )
+            loss = loss_fn(measurement_guess, measurement, estimate)
 
         if opt_params["plot_loss"]:
             losses += [loss.detach().cpu()]
@@ -471,7 +453,7 @@ def image_recon(
         plt.plot(range(len(losses)), losses)
         plt.show()
 
-    final = util.normalize(estimate.detach().cpu().float().numpy().copy())
+    final = np.squeeze(util.normalize(estimate.detach().cpu().float().numpy().copy()))
 
     del estimate
     gc.collect()
@@ -485,7 +467,8 @@ def video_recon(
     psf_data,
     model,
     opt_params,
-    use_prev_frame=True,
+    batch_size=4,
+    prev_fram_warm_start=True,
     verbose=True,
     device=torch.device("cpu"),
 ):
@@ -507,7 +490,10 @@ def video_recon(
     opt_params : dict
         Dictionary of optimization parameters.
 
-    use_prev_frame : bool, optional
+    batch_size : int
+        size for stack batching
+
+    prev_fram_warm_start : bool, optional
         Whether to use the previous frame as a warm start. The default is True.
 
     verbose : bool, optional
@@ -522,27 +508,33 @@ def video_recon(
         Reconstructed video. Will be (M,N,N)
 
     """
+    start_idx = 0
+    if prev_fram_warm_start:
+        # run the first frame to initialize warm start
+        measurement_stack[0] = image_recon(
+            measurement_stack[0, :, :],
+            psf_data,
+            model,
+            opt_params=opt_params,
+            verbose=verbose,
+            device=device,
+        )
+        start_idx = 1
 
-    num_frames = measurement_stack.shape[0]
-
-    for i in range(num_frames):
-        # recon frame by frame
-        if verbose:
-            print("frame: " + str(i))
-        curr_frame = measurement_stack[i, :, :]
-
-        if use_prev_frame and i > 0:
-            estimate = image_recon(
-                curr_frame,
+    # process stack chunk-wise
+    for i in range(start_idx, measurement_stack.shape[0], batch_size):
+        if prev_fram_warm_start:
+            measurement_stack[i : i + batch_size, :, :] = image_recon(
+                measurement_stack[i : i + batch_size, :, :],
                 psf_data,
                 model,
                 opt_params=opt_params,
-                warm_start=measurement_stack[i - 1, :, :],
+                warm_start=measurement_stack[i - 1 : batch_size - 1, :, :],
                 device=device,
             )
         else:
-            estimate = image_recon(
-                curr_frame,
+            measurement_stack[i : i + batch_size, :, :] = image_recon(
+                measurement_stack[i : i + batch_size, :, :],
                 psf_data,
                 model,
                 opt_params=opt_params,
@@ -550,8 +542,6 @@ def video_recon(
                 device=device,
             )
 
-        # for memory efficiency, replace measurement stack
-        measurement_stack[i, :, :] = estimate
     return measurement_stack
 
 
@@ -807,3 +797,65 @@ def ir2tf(imp_resp, shape, dim=None, is_real=True):
             )
 
     return fft.rfftn(irpadded, dim=list(range(-dim, 0)))
+
+
+class StackwiseMSELossTV(torch.nn.Module):
+    """
+    MSE loss with tv regularization applied stack-wise to a BNN or BCNN batch
+    """
+
+    def __init__(self, tv_reg, l2_reg, crop):
+        """
+        Build object for stackwise MSE loss with TV
+
+        Parameters
+        ----------
+        tv_reg : float
+            scaling parameter for TV regularization
+        l2_reg : float
+            scaling parameter for Ridge
+        crop : int
+            crop (on all sides of images) to apply
+        """
+        super().__init__()
+        self.tv_reg = tv_reg
+        self.l2_reg = l2_reg
+        self.crop = crop
+
+    def forward(self, pred, target, estimate):
+        """
+        Forward application of loss.
+
+        Parameters
+        ----------
+        pred : torch.Tensor
+            prediction tensor
+        target : torch.Tensor
+            Target/label tensor
+        estimate : torch.Tensor
+            Current estimate tensor (for regularization)
+
+        Returns
+        -------
+        torch.Tensor
+            Loss tensor, batchwise
+        """
+        assert (
+            pred.size() == target.size()
+        ), "'pred' and 'target' must have the same size."
+
+        loss = torch.zeros((pred.shape[0],) + (1,) * (len(pred.shape) - 1))
+
+        if self.crop is not 0:
+            pred = pred[..., self.crop : -self.crop, self.crop : -self.crop]
+            target = target[..., self.crop : -self.crop, self.crop : -self.crop]
+            estimate = estimate[..., self.crop : -self.crop, self.crop : -self.crop]
+
+        for i in range(loss.shape[0]):
+            loss[i] = (
+                torch.mean((pred[i, ...] - target[i, ...]) ** 2)
+                + tv(estimate[i, ...], self.tv_reg)
+                + self.l2_reg * torch.norm(estimate[i, ...])
+            )
+
+        return loss
