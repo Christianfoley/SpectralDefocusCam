@@ -5,7 +5,6 @@ import torch
 import torch.optim
 import scipy.io
 import cv2
-
 import models.rdmpy.blur as blur
 
 
@@ -45,6 +44,51 @@ def pyramid_down(image, out_shape):
     return cv2.resize(closest_pyr, out_shape, interpolation=cv2.INTER_AREA)
 
 
+def img_interp1d(samples, vals, newvals, verbose=False, force_range_overlap=True):
+    """
+    Given a set of images sampled from underlying (assumed linear) function, and the input
+    values of the samples, will resample function along the specified interp axis to
+    the "newvals".
+
+    Note: forcing a range overlap can cause some issues with true image quality. It is
+    strongly recommended that the newvals range is within the oldvals range.
+
+    Parameters
+    ----------
+    samples : np.ndarray
+        4d square image stack to interpolate along (c, vals, n, n)
+    vals : np.ndarray
+        2d array containing the original sample values (c, vals)
+    newvals : np.ndarray
+        2d array containing the new sample values (c, newvals)
+    force_range_overlap : bool, optional
+        If true, forces the min and max of vals to the min and max of newvals to prevent
+        an out of interpolation range error
+
+    Returns
+    -------
+    np.ndarray
+        4d square image stack with out samples, (c, newvals, n, n)
+    """
+    c, v, n, n = samples.shape
+    vals, newvals = vals.copy(), newvals.copy()
+    assert vals.shape[:2] == (c, v), "wrong number of values to samples"
+    assert newvals.shape[0] == c, "wrong number of newvals to samples"
+
+    interp = scipy.interpolate.interp1d
+    out_samples = np.zeros((c, newvals.shape[-1], n, n))
+    for j in tqdm.tqdm(list(range(c)), desc="Interpolating") if verbose else range(c):
+        # force old value range to encompas new value range
+        if force_range_overlap:
+            min_idx, max_idx = np.argmin(vals[j]), np.argmax(vals[j])
+            vals[j, min_idx] = np.min(newvals[j])
+            vals[j, max_idx] = np.max(newvals[j])
+        interp = scipy.interpolate.interp1d(vals[j], samples[j], axis=0)
+        out_samples[j] = interp(newvals[j])
+
+    return out_samples
+
+
 def rescale_to_psfs(batch, yx_shape, mode="trilinear"):
     """
     Rescales batch data via 3d bilinear interpolation to match the spatial
@@ -75,16 +119,19 @@ def rescale_to_psfs(batch, yx_shape, mode="trilinear"):
 
 def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
     """
-    Crutch function to perform 2d ring convolution on every 2d slice in a
-    batched hyperspectral blur stack.
+    Performs ring convolution batch-wise with stack of RoFT PSFS and a batched stack
+    of images
 
     Note that if the psf batch is too large in r and h, the batch's x and y dimensions
     will be upsampled to match
 
+    Note that the method will attempt to broadcast along the n_blur dimension of the
+    batch if it is of size 1
+
     Parameters
     ----------
     batch : torch.Tensor
-        5d tensor of shape (batch, n_blur, channel, y, x)
+        5d tensor of shape (batch, n_blur or 1, channel, y, x)
     psfs : torch.Tensor
         4d tensor of shape (n_blur, r, theta, h)
     device : torch.device, optional
@@ -93,32 +140,88 @@ def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
     Returns
     -------
     torch.Tensor
-        blurred batch
+        5d blurred batch of shape (batch, n_blur, channel, y, x)
     """
     assert len(batch.shape) == 5, "batch must be of shape b, n, c, y, x"
     assert len(psfs.shape) == 4, "psf data must be of shape n, r, theta, h"
 
-    # fix size mismatch issue (we upsample to psfs->conv->downsample back)
+    # infer broadcasting along blur dimension
+    (_, b_n, _, _, _), (n_b, _, _, _) = batch.shape, psfs.shape
     batch = batch.type(torch.float32)
+    if b_n != psfs.shape[0]:
+        assert b_n == 1, f"Blur dim of batch {b_n} does not match num psfs {n_b}"
+        batch = batch.repeat(1, psfs.shape[0], 1, 1, 1)
+
+    # fix size mismatch issue (we upsample to psfs->conv->downsample back)
     batch, output_size = rescale_to_psfs(batch, (psfs.shape[1], psfs.shape[3]))
 
+    # batch-wise convolution for each blur level
     convolved_batch = torch.zeros_like(batch, device=device)
-    for n in range(batch.shape[1]):
+    for n in range(convolved_batch.shape[1]):
         convolved_batch[:, n, ...] = blur.batch_ring_convolve(
             batch[:, n, ...], psfs[n], device=device
         )
 
+    # rescale to original input shape
     batch, _ = rescale_to_psfs(convolved_batch, output_size)
+
+    del convolved_batch
     return batch
+
+
+def mov_avg_mask(cube, waves, start, end, step=8, width=8):
+    """
+    Averages hyperspectral data cube across spectral channels with a
+    moving average filter of step "step" (in lambda) and width "idx_width"
+    (in indices)
+
+    Parameters
+    ----------
+    cube : np.ndarray
+        HS data cube (L,Y,X)
+    waves : np.ndarray
+        list of wavelengths corresponding to HS datacube
+    start : int
+        start wavelength (in lambda/nm)
+    end : int
+        end wavelength (in lambda/nm)
+    step : int, optional
+        step size (in lambda/nm), by default 8
+    width : int, optional
+        average filter width (in lambda/nm), by default 5
+
+    Returns
+    -------
+    np.ndarray
+        new data cube filtered over lambda (L_hat, Y, X)
+    """
+    idx_width = int(width // (waves[1] - waves[0]))
+    new_waves = np.arange(start, end, step)
+
+    lp_cube = np.zeros((len(new_waves),) + cube.shape[1:])
+    actual_new_waves = np.zeros_like(new_waves)
+    for i, wave in enumerate(new_waves):
+        idx = np.where(waves == wave)[0][0]
+        lp_cube[i] = np.mean(cube[idx - idx_width // 2 : idx + idx_width // 2 + 1], 0)
+        actual_new_waves[i] = np.mean(
+            waves[idx - idx_width // 2 : idx + idx_width // 2 + 1]
+        )
+
+    # safety check that the given wavelengths apply to the data cube
+    assert np.all(
+        np.equal(new_waves, actual_new_waves)
+    ), "Detected mismatch between generated and requested wavelengths"
+
+    return lp_cube, new_waves
 
 
 def load_mask(
     path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
-    patch_crop_center=[500, 1500],  # [200, 2100],
+    patch_crop_center=[1050, 2023],  # [200, 2100],
     patch_crop_size=[768, 768],
     patch_size=[256, 256],
     old_calibration=False,
-    sum_chans_2=True,
+    sum_chans_2=False,
 ):
     spectral_mask = scipy.io.loadmat(path)
     dims = (
@@ -129,7 +232,7 @@ def load_mask(
     )
     mask = spectral_mask["mask"][dims[0] : dims[1], dims[2] : dims[3]]
 
-    if old_calibration:  # weird things about models trained with calibration matrix
+    if old_calibration:  # weird things about models trained with old calibration matrix
         mask = mask[100 : 100 + patch_size[0], 100 : 100 + patch_size[1], :-1]
         mask = (mask[..., 0::2] + mask[..., 1::2]) / 2
         mask = mask[..., 0:30]
@@ -139,23 +242,22 @@ def load_mask(
             mask1 = mask[..., 0:-1:2]
             mask2 = mask[..., 1::2]
             mask = (mask1 + mask2)[..., 0:30]
-        else:
-            mask = mask[..., :64]
 
         # downsample & normalize
         nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
-        mask = np.stack(
-            [pyramid_down(mask[..., i], patch_size) for i in range(mask.shape[-1])],
-            axis=-1,
+        mask = nm(
+            np.stack(
+                [pyramid_down(mask[..., i], patch_size) for i in range(mask.shape[-1])],
+                axis=-1,
+            )
         )
-
-        mask = nm(mask)
     return mask
 
 
 def process_mat_files(input_directory, output_directory, overwrite=True):
     """
-    Process .mat files from the input directory, extracting the 'image' array and saving it as a new .mat file in the output directory.
+    Process .mat files from the input directory, extracting the 'image' array
+    and saving it as a new .mat file in the output directory.
 
     Parameters
     ----------

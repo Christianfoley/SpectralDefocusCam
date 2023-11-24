@@ -1,0 +1,62 @@
+# example config for training
+
+# data paths
+checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
+psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/multipos/alignment_psfs_cross_5_blur/dim768-256_5focus"
+base_data_path: "/home/cfoley_waller/defocam/defocuscamdata/sample_data_preprocessed_lri_11_22"
+false_color_mat_path: "/home/cfoley_waller/defocam/SpectralDefocusCam/utils/false_color_calib.mat"
+mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_11_10_2023_2_preprocessed/calibration_matrix_450-810_30chan_stride12_avg12.mat"
+
+# model params
+device: 2
+data_precomputed: True
+forward_model_params:
+  stack_depth: 5
+  psf:
+    lri: True
+    stride: 1
+    symmetric: True
+    optimize: False
+    padded_shape: [768, 768] #only used if LRI is False
+    norm_each: True
+  operations:
+    sim_blur: False
+    sim_meas: True
+    adjoint: True
+    spectral_pad: True
+    roll: False
+  
+recon_model_params:
+  model_name: "unet" # "r2attunet"
+
+# training params
+epochs: 300
+batch_size: 2
+patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
+patch_crop: [768, 768] # actual size on camera
+image_center: [1050, 2023] # center of both the image and mask crops
+num_workers: 6
+data_partition: [0.7, 0.15, 0.15] #["fruit", "pavia", "harvard"] # train, val, test
+early_stopping_patience: 35
+loss_function: 
+  name: "mse" # mse, mae, cossim, lpips, psnr, ssim
+  params: 
+optimizer: 
+  name: "adam" # adam, sgd, adagrad, rmsprop
+  params: # kwargs
+    lr: 0.0002
+    # weight_decay: 0.002
+lr_scheduler: 
+  name: "warm_cosine_anneal" # warm_cosine_anneal, exponential, plateau
+  params: 
+    T_0: 15
+
+# restarting from checkpoint
+preload_weights: False
+checkpoint_dir: ""
+offset: 0
+
+# other params
+log_grads: False
+validation_stride: 3
+checkpoint_stride: 9

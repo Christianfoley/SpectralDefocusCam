@@ -4,8 +4,13 @@ import matplotlib.pyplot as plt
 import torch
 import scipy.io
 import yaml
+import colour
 from IPython.core.display import display, HTML
 from ipywidgets import interact, widgets, fixed
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from plotly.offline import init_notebook_mode, iplot
 
 import sys
 
@@ -132,35 +137,64 @@ def pre_plot(x, flip=True):
 
 def stack_rgb_opt_30(
     reflArray,
-    channels=30,
+    spectral_range=[450, 810],
     offset=0,
-    opt=None,
-    scaling=[1, 1, 2.5],
+    scaling=[1, 1, 1],
 ):
-    color_dict = scipy.io.loadmat(opt)
-    red = color_dict["red"]
-    green = color_dict["green"]
-    blue = color_dict["blue"]
+    """
+    Projects a hyperspectral array onto false color and returns a 3d
+    rgb image. hyperspectral image assumed to have a start and end wavelength
+    starting at index "offset" specified by "range".
 
-    reflArray = reflArray / np.max(reflArray)
+    Parameters
+    ----------
+    reflArray : np.ndarray
+        hyperspectral image (y,x,lambda)
+    spectral_range : list, optional
+        range from lowest to highest wavelength, by default [450, 810]
+    offset : int, optional
+        offset index in reflarray for start of range, by default 0
+    scaling : list, optional
+        scaling of each color curve, by default [1, 1, 2.5]
 
-    red_channel = np.zeros((reflArray.shape[0], reflArray.shape[1]))
-    green_channel = np.zeros((reflArray.shape[0], reflArray.shape[1]))
-    blue_channel = np.zeros((reflArray.shape[0], reflArray.shape[1]))
+    Returns
+    -------
+    np.ndarray
+        false color RGB image, (y,x,3)
+    """
+    # Validate input
+    if len(spectral_range) != 2:
+        raise ValueError(
+            "spectral_range should have two elements (start and end wavelengths)."
+        )
+    if len(scaling) != 3:
+        raise ValueError(
+            "scaling should have three elements (one for each RGB channel)."
+        )
+    if reflArray.ndim != 3:
+        raise ValueError("reflArray should be a 3D numpy array.")
 
-    for i in range(0, channels):
-        ndx = int(offset + (i * 64 / channels) // 1)
-        red_channel = red_channel + reflArray[:, :, i] * red[0, ndx] * scaling[0]
-        green_channel = green_channel + reflArray[:, :, i] * green[0, ndx] * scaling[1]
-        blue_channel = blue_channel + reflArray[:, :, i] * blue[0, ndx] * scaling[2]
+    # load color matching functions
+    cmfs = colour.colorimetry.MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
 
-    red_channel = red_channel / channels
-    green_channel = green_channel / channels
-    blue_channel = blue_channel / channels
+    # enforce offset and fix bounds
+    reflArray = reflArray[:, :, offset:]
+    spectral_range = [
+        max(spectral_range[0], cmfs.wavelengths[0]),
+        min(spectral_range[1], cmfs.wavelengths[-1]),
+    ]
 
-    stackedRGB = np.stack((red_channel, green_channel, blue_channel), axis=2)
+    # align the cmfs to the requested range and integrate over channels
+    wavelengths = np.linspace(*spectral_range[:2], reflArray.shape[2], endpoint=False)
+    idcs = np.squeeze(
+        np.array([np.where(cmfs.wavelengths == int(w)) for w in wavelengths])
+    )
 
-    return stackedRGB  # original version for 64 channels
+    rgb_image = np.einsum("yxwc,wc->yxc", reflArray[..., None], cmfs.values[idcs, :])
+
+    # scale
+    rgb_image = rgb_image * np.array(scaling)[None, None, :] / len(wavelengths)
+    return rgb_image
 
 
 def stack_rgb_opt(
@@ -223,139 +257,150 @@ def preprocess(mask, psf, im):
     return mask, psf, im
 
 
-def interp_along_axis(y, x, newx, axis, inverse=False, method="linear"):
-    """Interpolate vertical profiles, e.g. of atmospheric variables
-    using vectorized numpy operations
-
-    This function assumes that the x-xoordinate increases monotonically
-
-    ps:
-    * Updated to work with irregularly spaced x-coordinate.
-    * Updated to work with irregularly spaced newx-coordinate
-    * Updated to easily inverse the direction of the x-coordinate
-    * Updated to fill with nans outside extrapolation range
-    * Updated to include a linear interpolation method as well
-        (it was initially written for a cubic function)
-
-    Peter Kalverla
-    March 2018
-
-    --------------------
-    More info:
-    Algorithm from: http://www.paulinternet.nl/?page=bicubic
-    It approximates y = f(x) = ax^3 + bx^2 + cx + d
-    where y may be an ndarray input vector
-    Returns f(newx)
-
-    The algorithm uses the derivative f'(x) = 3ax^2 + 2bx + c
-    and uses the fact that:
-    f(0) = d
-    f(1) = a + b + c + d
-    f'(0) = c
-    f'(1) = 3a + 2b + c
-
-    Rewriting this yields expressions for a, b, c, d:
-    a = 2f(0) - 2f(1) + f'(0) + f'(1)
-    b = -3f(0) + 3f(1) - 2f'(0) - f'(1)
-    c = f'(0)
-    d = f(0)
-
-    These can be evaluated at two neighbouring points in x and
-    as such constitute the piecewise cubic interpolator.
+def plot_cube_interactive(
+    data_cube,
+    height=600,
+    width=1200,
+    use_false_color=True,
+    fc_range=[450, 810],
+    fc_scaling=[1, 1, 1],
+):
     """
+    Returns an interactive plotly figure using ipywidgets
+    that plots a hyperspectral image's response at the clicked pixel
 
-    # View of x and y with axis as first dimension
-    if inverse:
-        _x = np.moveaxis(x, axis, 0)[::-1, ...]
-        _y = np.moveaxis(y, axis, 0)[::-1, ...]
-        _newx = np.moveaxis(newx, axis, 0)[::-1, ...]
+    Parameters
+    ----------
+    data_cube : np.ndarray
+        3d hyperspectral data cube (y,x,lambda)
+    height : int, optional
+        height of plot, by default 600
+    width : int, optional
+        width of plot, by default 1200
+    use_false_color : bool, optional
+        whether to use FC images
+    fc_range : list, optional
+        range of wavelengths in data cube (start, end), by default [450, 810]
+    fc_scaling : list, optional
+        scaling of FC channels (r g b), by default [1, 1, 1]
+
+    Returns
+    -------
+    go.FigureWidget
+        interactive plotly widget figure
+    """
+    mean_image = np.mean(data_cube, axis=2)
+
+    # init plot with the fc image, an empty vector plot, and a marker trace
+    fig = go.FigureWidget(
+        make_subplots(rows=1, cols=2, subplot_titles=["False Color Image", "Response"])
+    )
+    if use_false_color:
+        projected_false_color = (
+            value_norm(stack_rgb_opt_30(data_cube, fc_range, scaling=fc_scaling)) * 255
+        ).astype(np.uint8)
+        image_trace = go.Image(z=projected_false_color)
     else:
-        _y = np.moveaxis(y, axis, 0)
-        _x = np.moveaxis(x, axis, 0)
-        _newx = np.moveaxis(newx, axis, 0)
+        image_trace = go.Heatmap(z=mean_image, colorscale="Viridis")
+    vector_plot_trace = go.Scatter(y=[], mode="lines+markers")
+    marker_trace = go.Scatter(
+        x=[], y=[], mode="markers", marker=dict(color="red", size=10)
+    )
 
-    # Sanity checks
-    if np.any(_newx[0] < _x[0]) or np.any(_newx[-1] > _x[-1]):
-        # raise ValueError('This function cannot extrapolate')
-        warnings.warn(
-            "Some values are outside the interpolation range. "
-            "These will be filled with NaN"
-        )
-    if np.any(np.diff(_x, axis=0) < 0):
-        raise ValueError("x should increase monotonically")
-    if np.any(np.diff(_newx, axis=0) < 0):
-        raise ValueError("newx should increase monotonically")
+    fig.add_trace(image_trace, row=1, col=1)
+    fig.add_trace(vector_plot_trace, row=1, col=2)
+    fig.add_trace(marker_trace, row=1, col=1)
+    fig.update_layout(
+        height=height,
+        width=width,
+        title_text="Click on image to view response vector",
+    )
+    fig.update_yaxes(range=[0, np.max(data_cube)], row=1, col=2)
 
-    # Cubic interpolation needs the gradient of y in addition to its values
-    if method == "cubic":
-        # For now, simply use a numpy function to get the derivatives
-        # This produces the largest memory overhead of the function and
-        # could alternatively be done in passing.
-        ydx = np.gradient(_y, axis=0, edge_order=2)
+    # Function to update the plot based on click
+    def update_plot_on_click(trace, points, selector):
+        """On-click update function for plot"""
+        if points.xs and points.ys:
+            x, y = int(points.xs[0]), int(points.ys[0])
+            depth_vector = data_cube[y, x, :]
 
-    # This will later be concatenated with a dynamic '0th' index
-    ind = [i for i in np.indices(_y.shape[1:])]
+            # Update plot and img marker
+            with fig.batch_update():
+                fig.data[1].y = depth_vector
+                fig.layout.annotations[1].text = f"Response at ({x}, {y})"
 
-    # Allocate the output array
-    original_dims = _y.shape
-    newdims = list(original_dims)
-    newdims[0] = len(_newx)
-    newy = np.zeros(newdims)
+                fig.data[2].x = [x]
+                fig.data[2].y = [y]
 
-    # set initial bounds
-    i_lower = np.zeros(_x.shape[1:], dtype=int)
-    i_upper = np.ones(_x.shape[1:], dtype=int)
-    x_lower = _x[0, ...]
-    x_upper = _x[1, ...]
+    # Attach the click event to the heatmap
+    fig.data[0].on_click(update_plot_on_click)
+    return fig
 
-    for i, xi in enumerate(_newx):
-        # Start at the 'bottom' of the array and work upwards
-        # This only works if x and newx increase monotonically
 
-        # Update bounds where necessary and possible
-        needs_update = (xi > x_upper) & (i_upper + 1 < len(_x))
-        # print x_upper.max(), np.any(needs_update)
-        while np.any(needs_update):
-            i_lower = np.where(needs_update, i_lower + 1, i_lower)
-            i_upper = i_lower + 1
-            x_lower = _x[[i_lower] + ind]
-            x_upper = _x[[i_upper] + ind]
+def plot_cube_3d_scatter(
+    data_cube,
+    maxval_thresh=0.5,
+    quantile_thresh=0.7,
+    point_opacity=0.9,
+    point_size=2,
+    downsample_yx_scale=2,
+    cscale="Jet",
+):
+    """
+    Generates interactive 3D scatter plot of hyperspectral cube.
+    Thresholds out all values for each x/y position depending on
+    quantile or maxval
 
-            # Check again
-            needs_update = (xi > x_upper) & (i_upper + 1 < len(_x))
+    Parameters
+    ----------
+    data_cube : np.ndarray
+        3d data cube to visualize (y,x,lambda)
+    maxval_thresh : float, optional
+        proportion of max response of each x/y to thresh, by default 0.5
+    quantile_thresh : int, optional
+        quantile of max response of each x/y to filter, by default 0
+    point_opacity : float, optional
+        opacity of points, by default 0.9
+    point_size : int, optional
+        size of points, by default 2
+    downsample_yx_scale : int, optional
+        scale of downsampling to use in y and x, by default 2
+    cscale : str, optional
+        color mapping, by default "Jet"
+    """
+    # Initialize Plotly for Jupyter Notebook
+    init_notebook_mode(connected=True)
+    if downsample_yx_scale:
+        data_cube = data_cube[::downsample_yx_scale, ::downsample_yx_scale]
 
-        # Express the position of xi relative to its neighbours
-        xj = (xi - x_lower) / (x_upper - x_lower)
+    threshold = np.maximum(
+        np.quantile(data_cube, quantile_thresh),
+        np.max(data_cube, axis=2, keepdims=True) * maxval_thresh,
+    )
+    x, y, z = np.where(data_cube > threshold)
+    values = data_cube[x, y, z]
 
-        # Determine where there is a valid interpolation range
-        within_bounds = (_x[0, ...] < xi) & (xi < _x[-1, ...])
+    trace = go.Scatter3d(
+        x=x,
+        y=y,
+        z=z,
+        mode="markers",
+        marker=dict(
+            size=point_size,
+            color=values,
+            colorscale=cscale,
+            opacity=point_opacity,
+        ),
+    )
 
-        if method == "linear":
-            f0, f1 = _y[[i_lower] + ind], _y[[i_upper] + ind]
-            a = f1 - f0
-            b = f0
+    layout = go.Layout(
+        scene=dict(
+            xaxis=dict(title="X-axis"),
+            yaxis=dict(title="Y-axis"),
+            zaxis=dict(title="Z-axis"),
+        ),
+        margin=dict(l=0, r=0, b=0, t=0),  # Adjust margins for a cleaner plot
+    )
 
-            newy[i, ...] = np.where(within_bounds, a * xj + b, np.nan)
-
-        elif method == "cubic":
-            f0, f1 = _y[[i_lower] + ind], _y[[i_upper] + ind]
-            df0, df1 = ydx[[i_lower] + ind], ydx[[i_upper] + ind]
-
-            a = 2 * f0 - 2 * f1 + df0 + df1
-            b = -3 * f0 + 3 * f1 - 2 * df0 - df1
-            c = df0
-            d = f0
-
-            newy[i, ...] = np.where(
-                within_bounds, a * xj**3 + b * xj**2 + c * xj + d, np.nan
-            )
-
-        else:
-            raise ValueError(
-                "invalid interpolation method" "(choose 'linear' or 'cubic')"
-            )
-
-    if inverse:
-        newy = newy[::-1, ...]
-
-    return np.moveaxis(newy, 0, axis)
+    fig = go.Figure(data=[trace], layout=layout)
+    return iplot(fig)

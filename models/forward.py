@@ -132,7 +132,7 @@ class ForwardModel(torch.nn.Module):
             self.psfs = torch.tensor(psfs, dtype=torch.float32, device=self.device)
         elif self.psfs is None:
             if self.psf["lri"]:
-                psfs = psf_utils.get_lri_psfs(
+                psfs = psf_utils.load_lri_psfs(
                     self.psf_dir,
                     self.num_ims,
                 )

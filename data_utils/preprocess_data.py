@@ -106,7 +106,7 @@ def project_spectral(img, out_channels, chan_range=None):
     return f_out(projection_x_vals)
 
 
-def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib=False):
+def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib=True):
     """
     Preprocesses harvard images into patches of given size and returns a list of patch
     data. When patching will ignore patches which contain part of the mask.
@@ -124,8 +124,8 @@ def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib
     """
     img_data, mask_data = img["ref"], img["lbl"]
     calib_vec = np.expand_dims(np.array(calib_vec, dtype=float), axis=(0, 1))
-    if apply_calib:
-        apply_calib = np.ones_like(calib_vec)
+    if not apply_calib:
+        calib_vec = np.ones_like(calib_vec)
     patches = get_patches(patch_size, img_data.shape)
 
     img_patches = []
@@ -134,7 +134,7 @@ def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib
         if np.min(mask_patch) == 0:
             continue
         img_patch = img_data[p[0] : p[1], p[2] : p[3]]
-        img_patch = (img_patch * np.expand_dims(mask_patch, 2)) * calib_vec
+        img_patch = (img_patch * np.expand_dims(mask_patch, 2)) / calib_vec
         img_patch = project_spectral(img_patch, num_channels)
         img_patches.append(img_patch)
 

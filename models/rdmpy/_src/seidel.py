@@ -173,13 +173,14 @@ def compute_psfs(
         curr_psf = torch.fft.fftshift(torch.fft.ifftn(torch.fft.ifftshift(H)))
         del H
         curr_psf = torch.square(torch.abs(curr_psf))
-        curr_psf = curr_psf / curr_psf.sum()
+        curr_psf = curr_psf / curr_psf.sum()  # this is the real space psf, centered
 
         curr_psf = util.shift_torch(
             curr_psf,
             (-(point[1].cpu().numpy()), (point[0].cpu().numpy())),
             mode="bicubic",
         )
+
         if polar:
             curr_psf = polar_transform.img2polar(curr_psf.float(), numRadii=num_radii)
         if stack:

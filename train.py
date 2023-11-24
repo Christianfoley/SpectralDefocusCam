@@ -167,7 +167,7 @@ def evaluate(model, dataloader, loss_function, device):
     return val_loss, in_np, recon_np, gt_np
 
 
-def generate_plot(model_input, recon, gt, opt_path, fc_scaling=[0.9, 0.74, 1.12]):
+def generate_plot(model_input, recon, gt):
     """
     Visualization utility for tensorboard logging. Generates a plot of recon next
     to ground truth in false color. Also plots a random pixel spectral response
@@ -179,10 +179,6 @@ def generate_plot(model_input, recon, gt, opt_path, fc_scaling=[0.9, 0.74, 1.12]
         reconstructed hyperspectral image (model output) (c, y, x)
     gt : np.ndarray
         ground truth hyperspectral data (model input) (c, y, x)
-    opt_path : str
-        path to the false color calibration data
-    fc_scaling : list, optional
-        list of RGB weightings for false color image, by default [0.9, 0.74, 1.12]
 
     Returns
     -------
@@ -200,15 +196,9 @@ def generate_plot(model_input, recon, gt, opt_path, fc_scaling=[0.9, 0.74, 1.12]
     while len(gt.shape) > 3:
         gt = gt[0]
 
-    input_fc = helper.stack_rgb_opt_30(
-        model_input.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
-    )
-    pred_fc = helper.stack_rgb_opt_30(
-        recon.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
-    )
-    samp_fc = helper.stack_rgb_opt_30(
-        gt.transpose(1, 2, 0), scaling=fc_scaling, opt=opt_path
-    )
+    input_fc = helper.stack_rgb_opt_30(model_input.transpose(1, 2, 0))
+    pred_fc = helper.stack_rgb_opt_30(recon.transpose(1, 2, 0))
+    samp_fc = helper.stack_rgb_opt_30(gt.transpose(1, 2, 0))
     input_fc = helper.value_norm(input_fc)
     pred_fc = helper.value_norm(pred_fc)
     samp_fc = helper.value_norm(samp_fc)
@@ -294,12 +284,12 @@ def run_training(
             y, x = sample["image"], sample["input"]
 
             # Compute the output image
-            output = model(sample["input"].to(device))
+            output = model(x.to(device))
             inf_time += time.time() - mark
             mark = time.time()
 
             # Compute the loss
-            loss = loss_function(output, sample["image"].to(device))
+            loss = loss_function(output, y.to(device))
             train_loss += loss.item()
 
             # Update the model
@@ -314,6 +304,9 @@ def run_training(
                 )
             prop_time += time.time() - mark
             mark = time.time()
+            del y
+            del x
+
         lr_scheduler.step()
 
         train_loss = train_loss / train_dataloader.__len__()
@@ -328,12 +321,7 @@ def run_training(
             print(f"\nEpoch ({i}) losses  (train, val) : ({train_loss}, {val_loss})")
 
             if plot:
-                fig = generate_plot(
-                    input_np,
-                    recon_np,
-                    ground_truth_np,
-                    opt_path=config["false_color_mat_path"],
-                )
+                fig = generate_plot(input_np, recon_np, ground_truth_np)
                 writer.add_figure(f"epoch_{i}_fig", fig)
             early_stopper(val_loss=val_loss, model=model, epoch=i)
         else:
