@@ -229,7 +229,7 @@ def stack_rgb_opt(
     return stackedRGB
 
 
-def preprocess(mask, psf, im):
+def preprocess(im):
     # Crop indices
     c1 = 100
     c2 = 420
@@ -397,7 +397,7 @@ def plot_cube_3d_scatter(
         scene=dict(
             xaxis=dict(title="X-axis"),
             yaxis=dict(title="Y-axis"),
-            zaxis=dict(title="Z-axis"),
+            zaxis=dict(title="Lambda-axis"),
         ),
         margin=dict(l=0, r=0, b=0, t=0),  # Adjust margins for a cleaner plot
     )

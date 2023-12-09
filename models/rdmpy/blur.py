@@ -46,9 +46,11 @@ def ring_convolve(
     """
 
     if not torch.is_tensor(obj):
-        obj = torch.tensor(obj)  # .float()
+        obj = torch.tensor(obj).float()
     if obj.device is not device:
         obj = obj.to(device)
+    if not len(obj.shape) == 2 and obj.shape[0] == obj.shape[1]:
+        raise AssertionError(f"Object of shape {obj.shape} must be 2d square image")
 
     # infer info from the PSF roft
     num_radii = psf_roft.shape[0]
@@ -105,12 +107,10 @@ def batch_ring_convolve(obj, psf_roft, device=torch.device("cpu")):
         The ring convolution of the object with the PSF stack. Will be (B,C,N,N).
 
     """
-
     if not torch.is_tensor(obj):
         obj = torch.tensor(obj)  # .float()
     if obj.device is not device:
         obj = obj.to(device)
-
     # infer info from the PSF roft
     num_radii = psf_roft.shape[0]
 
@@ -125,7 +125,6 @@ def batch_ring_convolve(obj, psf_roft, device=torch.device("cpu")):
     )
     dr = r_list[1] - r_list[0]
     dtheta = 2 * torch.pi / obj_polar.shape[-2]
-
     # utilize einsum to accelerate batched multiplication
     rdrdtheta = r_list[None, None, :, None, None] * dr * dtheta
     psf_roft = (psf_roft[None, None, ...] * rdrdtheta).type(torch.complex64)
@@ -133,7 +132,6 @@ def batch_ring_convolve(obj, psf_roft, device=torch.device("cpu")):
 
     img_polar_fft = torch.einsum("bcwtr,bcrtw->bctw", img_polar_fft, psf_roft)
     img = polar_transform.batchpolar2img(fft.irfft(img_polar_fft, dim=-2), obj.shape)
-
     return img
 
 

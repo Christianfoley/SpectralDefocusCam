@@ -33,12 +33,15 @@ def get_data(
         pavia_chunked,
         transforms.Compose(
             [
-                Resize(),
+                # Resize(),
                 subImageRand(patch_size),
                 chooseSpectralBands(interp=True),
             ]
             if apply_rand_aug
-            else [Resize(), chooseSpectralBands(interp=True)]
+            else [
+                # Resize(),
+                chooseSpectralBands(interp=True),
+            ]
         ),
         tag=["paviaU", "pavia"],
     )
@@ -49,14 +52,14 @@ def get_data(
         transforms.Compose(
             [
                 readCompressed(),
-                Resize(),
+                # Resize(),
                 subImageRand(patch_size),
                 chooseSpectralBands(),
             ]
             if apply_rand_aug
             else [
                 readCompressed(),
-                Resize(),
+                # Resize(),
                 chooseSpectralBands(),
             ]
         ),
@@ -66,13 +69,13 @@ def get_data(
         harvard_indoor + harvard,
         transforms.Compose(
             [
-                Resize(),
+                # Resize(),
                 subImageRand(patch_size),
                 chooseSpectralBands(),
             ]
             if apply_rand_aug
             else [
-                Resize(),
+                # Resize(),
                 chooseSpectralBands(),
             ]
         ),
@@ -229,7 +232,7 @@ class SpectralDataset(Dataset):
 
 
 class Resize(object):  # uses cv2.resize with a default size of 256,256
-    def __init__(self, output_size=(256, 256)):
+    def __init__(self, output_size=(768, 768)):
         self.output_size = output_size
 
     def __call__(self, sample):

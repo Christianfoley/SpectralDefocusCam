@@ -59,14 +59,22 @@ class ForwardModel(torch.nn.Module):
         self.PAD_SIZE0 = int((self.DIMS0))  # Pad size
         self.PAD_SIZE1 = int((self.DIMS1))  # Pad size
 
-        if w_init is None:
+        # Initialize simulated psfs
+        self.w_init = self.psf.get("w_init", None)
+        if self.w_init is None:
             self.w_init = np.linspace(0.002, 0.035, self.num_ims)
-            if not self.psf["symmetric"]:
-                self.w_init = np.linspace(0.002, 0.01, self.num_ims)
-                self.w_init = np.repeat(
-                    np.array(self.w_init)[np.newaxis], self.num_ims, axis=0
-                ).T
-                self.w_init[:, 1] *= 0.5
+        if not self.psf["symmetric"]:
+            self.w_init = np.linspace(0.002, 0.01, self.num_ims)
+            self.w_init = np.repeat(
+                np.array(self.w_init)[np.newaxis], self.num_ims, axis=0
+            ).T
+            self.w_init[:, 1] *= 0.5
+        x = np.linspace(-1, 1, self.DIMS1)
+        y = np.linspace(-1, 1, self.DIMS0)
+        X, Y = np.meshgrid(x, y)
+
+        self.X = torch.tensor(X, dtype=torch.float32, device=self.device)
+        self.Y = torch.tensor(Y, dtype=torch.float32, device=self.device)
 
         self.w_blur = torch.nn.Parameter(
             torch.tensor(
@@ -77,14 +85,6 @@ class ForwardModel(torch.nn.Module):
             ),
             requires_grad=self.psf["optimize"],
         )
-
-        # set up grid
-        x = np.linspace(-1, 1, self.DIMS1)
-        y = np.linspace(-1, 1, self.DIMS0)
-        X, Y = np.meshgrid(x, y)
-
-        self.X = torch.tensor(X, dtype=torch.float32, device=self.device)
-        self.Y = torch.tensor(Y, dtype=torch.float32, device=self.device)
 
         self.mask = torch.tensor(
             np.transpose(mask, (2, 0, 1)), dtype=torch.float32, device=self.device
@@ -107,6 +107,7 @@ class ForwardModel(torch.nn.Module):
         torch.Tensor
             stack of increasingly defocused psfs (n, y, x)
         """
+        exposures = self.psf.get("exposures", [])
         psfs = []
         for i in range(0, self.num_ims):
             var_yx = (self.w_blur[i], self.w_blur[i])
@@ -114,7 +115,12 @@ class ForwardModel(torch.nn.Module):
                 var_yx = (self.w_blur[i, 0], self.w_blur[i, 1])
 
             psf = torch.exp(-((self.X / var_yx[0]) ** 2 + (self.Y / var_yx[1]) ** 2))
-            psfs.append(psf / torch.linalg.norm(psf, ord=float("inf")))
+            psf = psf / torch.linalg.norm(psf, ord=float("inf"))
+
+            psfs.append((psf / np.max(psf)) * exposures)
+
+        if exposures:
+            psfs = psf_utils.even_exposures(psfs, self.num_ims, exposures)
         return torch.stack(psfs, 0)
 
     def init_psfs(self):
@@ -128,8 +134,7 @@ class ForwardModel(torch.nn.Module):
             return
 
         if self.operations["sim_blur"]:
-            psfs = self.simulate_lsi_psf()
-            self.psfs = torch.tensor(psfs, dtype=torch.float32, device=self.device)
+            self.psfs = self.simulate_lsi_psf().to(self.device).astype(torch.float32)
         elif self.psfs is None:
             if self.psf["lri"]:
                 psfs = psf_utils.load_lri_psfs(
@@ -140,10 +145,14 @@ class ForwardModel(torch.nn.Module):
                 psfs = psf_utils.get_lsi_psfs(
                     self.psf_dir,
                     self.num_ims,
-                    self.mask.shape,
+                    self.mask.shape[-2],
                     self.psf["padded_shape"],
-                    one_norm=self.psf["norm_each"],
-                    blurstride=self.psf["stride"],
+                    ksizes=self.psf.get("ksizes", []),
+                    exposures=self.psf.get("exposures", []),
+                    blurstride=self.psf.get("stride", 1),
+                    threshold=self.psf.get("threshold", 0.7),
+                    zero_outside=self.psf.get("largest_psf_diam", 0),
+                    use_first=self.psf.get("use_first", True),
                 )
             self.psfs = torch.tensor(psfs, device=self.device)
 
@@ -301,7 +310,8 @@ class ForwardModel(torch.nn.Module):
             self.b = self.spectral_pad(self.b, spec_dim=2, size=2)
 
         if self.operations["roll"]:
-            self.b = torch.roll(self.b, self.num_ims // 2, dims=1)
+            self.b = torch.flip(self.b, dims=(1,))
+            self.b = torch.roll(self.b, -1, dims=1)
 
         return self.b
 
@@ -341,27 +351,21 @@ def build_data_pairs(data_path, model, batchsize=1):
             print(f"Exception {e} \n File: {sample_file}")
             continue
 
-        # if sample already in sample_file, skip
-        if len(list(sample.keys())) > 4:
+        if len(list(sample.keys())) > 4:  # if sample already in sample_file, skip
             continue
 
-        # handle batching
         batch.append((sample_file, sample))
         if len(batch) == batchsize or i == len(data_files) - 1:
-            # build batch
             img_batch = torch.zeros((len(batch), 1, *img_shape), device=model.device)
             for j, (_, sample) in enumerate(batch):
                 img_batch[j] = torch.tensor(np.expand_dims(sample["image"], 0)).to(
                     model.device
                 )
 
-            # infer
             out_batch = model(img_batch.permute(0, 1, 4, 2, 3)).detach().cpu().numpy()
 
-            # save batch
             for j, (samp_f, sample) in enumerate(batch):
                 sample[key] = out_batch[j]
                 io.savemat(samp_f, sample)
 
-            # extend
             batch = []

@@ -1,5 +1,5 @@
 # utils for experimental psfs
-import sys, glob, os
+import sys, glob, os, pprint
 import gc
 from tqdm import tqdm
 
@@ -14,12 +14,31 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as vision_F
 
-
 import utils.diffuser_utils as diffuser_utils
 from models.rdmpy._src import seidel, util, polar_transform
 
 
 ### ---------- Utility functions ---------- ##
+
+
+def get_circular_kernel(diameter):
+    mid = (diameter - 1) / 2
+    distances = np.indices((diameter, diameter)) - np.array([mid, mid])[:, None, None]
+    kernel = ((np.linalg.norm(distances, axis=0) - mid) <= 0).astype(int)
+
+    return kernel
+
+
+def denoise_speckle(img, thresh_val=None):
+    if thresh_val == None:
+        thresh_val = np.median(img)
+
+    # get binary de-speckling mask
+    denoise_mask = cv2.medianBlur((img > thresh_val).astype("float32"), ksize=5)
+    denoise_mask = denoise_mask > np.max(denoise_mask) / 2
+
+    denoised_img = np.where(denoise_mask > 0, img, thresh_val)
+    return denoised_img
 
 
 def one_normalize(im):
@@ -38,32 +57,86 @@ def thresh(psf, quantile=0.33, use_otsu=False):
         )[1]
         return psf * mask
     else:
-        return psf * np.where(psf > np.quantile(psf, quantile), 1, 0)
+        mask = np.where(psf > np.quantile(psf, quantile), 1, 0)
+
+    return psf * mask
 
 
-def denoise_speckle(img, thresh_val=None):
-    if thresh_val == None:
-        thresh_val = np.median(img)
+def apply_mask_center(psf, width, shape="square"):
+    if shape == "square":
+        mask = np.ones((width, width))
+    elif shape == "circle":
+        mask = get_circular_kernel(width)
 
-    # get binary de-speckling mask
-    denoise_mask = cv2.medianBlur((img > thresh_val).astype("float32"), ksize=5)
-    denoise_mask = denoise_mask > np.max(denoise_mask) / 2
+    mask = center_pad_to_shape(mask[None, ...], psf.shape)[0]
 
-    denoised_img = np.where(denoise_mask > 0, img, thresh_val)
-    return denoised_img
-
-
-def get_circular_kernel(diameter):
-    mid = (diameter - 1) / 2
-    distances = np.indices((diameter, diameter)) - np.array([mid, mid])[:, None, None]
-    kernel = ((np.linalg.norm(distances, axis=0) - mid) <= 0).astype(int)
-
-    return kernel
+    return psf * mask
 
 
-def center_pad_to_shape(psfs, shape, val=0):
+def simulate_gaussian_psf(dim, w_blur):
     """
-    Pads stack of 2d images to shape
+    Simulate a gaussian psf
+
+    Parameters
+    ----------
+    dim : int
+        dimension of output
+    w_blur : np.ndarray or list
+        1d array of blur levels (arbitrary float)
+
+    Returns
+    -------
+    np.ndarray
+        stack of psfs (n_blur, dim, dim)
+    """
+
+    x = np.linspace(-1, 1, dim)
+    y = np.linspace(-1, 1, dim)
+    X, Y = np.meshgrid(x, y)
+
+    psfs = []
+    for i in range(0, len(w_blur)):
+        var_yx = (w_blur[i], w_blur[i])
+        psf = np.exp(-((X / var_yx[0]) ** 2 + (Y / var_yx[1]) ** 2))
+        psfs.append(psf / np.linalg.norm(psf, ord=float("inf")))
+    return np.stack(psfs, 0)
+
+
+def process_psf_patch(patch, coords, threshold, psf_dim):
+    """
+    Utility for processing psf patches to remove background noise, center, and
+    threshold values.
+
+    Parameters
+    ----------
+    patch : np.ndarray
+        input patch (2d numpy array) (y,x)
+    coords : tuple
+        coordinates of psf in input patch (to center around)
+    threshold : float
+        value between 0 and 1, quantile threshold value
+    psf_dim : int
+        dimension (same for x and y) of output image patch
+
+    Returns
+    -------
+    np.ndarray
+        processed psf patch, centered around the psf coordinates
+    """
+    patch = thresh(one_normalize(patch), quantile=threshold) * np.max(patch)
+
+    patch = np.pad(patch, ((psf_dim // 2, psf_dim // 2), (psf_dim // 2, psf_dim // 2)))
+    patch = patch[
+        coords[0] : coords[0] + psf_dim,
+        coords[1] : coords[1] + psf_dim,
+    ]
+
+    return patch
+
+
+def center_pad_to_shape(psfs, shape):
+    """
+    Center pads stack of 2d images to shape
 
     Parameters
     ----------
@@ -100,7 +173,7 @@ def center_pad_to_shape(psfs, shape, val=0):
 
 def center_crop_to_shape(psfs, shape):
     """
-    Crops stack of 2d images to shape
+    Center crops stack of 2d images to shape
 
     Parameters
     ----------
@@ -130,11 +203,45 @@ def center_crop_to_shape(psfs, shape):
     return cropped_psfs
 
 
-def center_crop_psf(psf, width, shape="square", center_offset=None, kernel_size=7):
+def get_psf_center(
+    psf,
+    width=None,
+    shape="square",
+    center_offset=None,
+    kernel_size=7,
+    return_cropped=False,
+):
+    """
+        Utility function to find the center coordinates of a psf in an image.
+    If specified, will crop input image to center, and return cropped image also
+
+    Parameters
+    ----------
+    psf : np.ndarray
+        2d numpy array with one psf in view
+    width : int, optional
+        width of output if returning cropped, by default None
+    shape : str, optional
+        shape of output if returnning cropped, by default "square"
+    center_offset : tuple, optional
+        coordinates if psf center is already known and just cropping is desired,
+        by default None
+    kernel_size : int, optional
+        size of kernel for center finding (approx size of psf), by default 7
+    return_cropped : bool, optional
+        whether to crop input image and return, by default False
+
+    Returns
+    -------
+    np.ndarray
+        cropped input (if specified)
+    tuple
+        psf center coordinates
+    """
     # pad to allow larger crop
     padding = (
-        (psf.shape[0] // 2, psf.shape[0] // 2),
-        (psf.shape[1] // 2, psf.shape[1] // 2),
+        (kernel_size, kernel_size),
+        (kernel_size, kernel_size),
     )
     psf = np.pad(psf, padding)
 
@@ -142,8 +249,6 @@ def center_crop_psf(psf, width, shape="square", center_offset=None, kernel_size=
         # blur for center of mass
         psf = psf * np.where(psf > np.quantile(psf, 0.75), psf, 0)
         psf_conv = cv2.GaussianBlur(psf, (kernel_size, kernel_size), 0)
-        # kernel = get_circular_kernel(kernel_size)
-        # psf_conv = signal.correlate(psf, kernel, mode="same")
 
         max_index = np.argmax(psf_conv)
         max_coords = np.unravel_index(max_index, psf.shape)
@@ -154,22 +259,29 @@ def center_crop_psf(psf, width, shape="square", center_offset=None, kernel_size=
         )
 
     # crop around max (always returns even, favors left&above)
-    square_crop = psf[
-        max_coords[0] - width // 2 : max_coords[0] + width // 2,
-        max_coords[1] - width // 2 : max_coords[1] + width // 2,
-    ]
-    max_coords = (
-        max_coords[0] - padding[0][0],
-        max_coords[1] - padding[1][0],
-    )
+    if return_cropped:
+        square_crop = psf[
+            max_coords[0] - width // 2 : max_coords[0] + width // 2,
+            max_coords[1] - width // 2 : max_coords[1] + width // 2,
+        ]
+        max_coords = (
+            max_coords[0] - padding[0][0],
+            max_coords[1] - padding[1][0],
+        )
 
-    if shape == "square":
-        return square_crop, max_coords
-    elif shape == "circle":
-        circle_crop = np.multiply(get_circular_kernel(width), square_crop)
-        return circle_crop, max_coords
+        if shape == "square":
+            return square_crop, max_coords
+        elif shape == "circle":
+            circle_crop = apply_mask_center(square_crop, width=width, shape=shape)
+            return circle_crop, max_coords
+        else:
+            raise NotImplementedError("unhandled crop shape")
     else:
-        raise AssertionError("unhandled crop shape")
+        max_coords = (
+            max_coords[0] - padding[0][0],
+            max_coords[1] - padding[1][0],
+        )
+        return max_coords
 
 
 def even_exposures(psfs, blur_levels, exposures, verbose=False):
@@ -233,14 +345,14 @@ def read_psfs(psf_dir, crop=None, patchsize=None, verbose=False):
     return psfs
 
 
-def superimpose_psfs(psf_list, blur_levels=1, one_norm=True):
+def superimpose_psfs(psfs, blur_levels=1, one_norm=True):
     """
     Superimpose translated psf measurements of the same focus level.
 
     Parameters
     ----------
-    psf_list : str
-        directory containing ordered psf measurements
+    psfs : list, np.ndarray
+        list of 2d numpy arrays (y, x) or stacked 4d numpy array (n_blur, positions, y, x)
     blur_levels : int, optional
         number of focus levels, by default 1
     one_norm : bool, optional
@@ -251,18 +363,20 @@ def superimpose_psfs(psf_list, blur_levels=1, one_norm=True):
     list or np.ndarray
         superimposed image or list of images for each focus level
     """
-    supimp_imgs = []
-    psf_list = [
-        [psf for i, psf in enumerate(psf_list) if i % blur_levels == f]
-        for f in range(blur_levels)
-    ]
-    for foc_psfs in psf_list:
-        img = np.sum(np.stack(foc_psfs, 0), 0)
+    if not isinstance(psfs, np.ndarray):
+        assert psfs % blur_levels == 0, "Incorred number of psfs to superimpose"
+        psfs_shape = (blur_levels, len(psfs) // blur_levels) + psfs[0].shape
+        psfs = np.stack(psfs).reshape(psfs_shape).transpose(1, 0, 2, 3)
+
+    n_blur, _, y, x = psfs.shape
+    supimp_imgs = np.zeros((n_blur, y, x))
+    for i in range(n_blur):
+        img = np.sum(psfs[i], axis=0)
 
         # need one-norming to go after superimposing because some psfs get cut off
         if one_norm:
             img = np.round(one_normalize(img.astype(float)) * 255).astype(np.int16)
-        supimp_imgs.append(img)
+        supimp_imgs[i] = img
 
     if blur_levels == 1:
         supimp_imgs[0]
@@ -343,19 +457,6 @@ def view_patched_psf_rings(
         summed rings of rotated psfs
     """
 
-    def process_patch(patch, coords):
-        patch = thresh(one_normalize(patch), quantile=threshold) * np.max(patch)
-
-        patch = np.pad(
-            patch, ((psf_dim // 2, psf_dim // 2), (psf_dim // 2, psf_dim // 2))
-        )
-        patch = patch[
-            coords[0] : coords[0] + psf_dim,
-            coords[1] : coords[1] + psf_dim,
-        ]
-
-        return patch
-
     centered_coords = psf_coordinates - (dim // 2)
     radii = [diffuser_utils.get_radius(c[0], c[1]) for c in centered_coords]
 
@@ -367,18 +468,21 @@ def view_patched_psf_rings(
             r = 0
         circ_points.append(util.getCircList((0, 0), radius=r, num_points=ppr))
 
-    rotated_psfs = np.zeros((len(circ_points) * len(circ_points[-1]), dim, dim))
+    rotated_psfs = []
     for i in tqdm(range(len(circ_points)), desc="Rendering rings"):
         for j, point in enumerate(circ_points[i]):
-            rotated_psfs[i * len(circ_points[-1]) + j] = rotate_psf(
-                process_patch(psf_patches[i], psf_coordinates[i]),
-                centered_coords[i],
-                point,
-                dim,
+            rotated_psfs.append(
+                rotate_psf(
+                    process_psf_patch(
+                        psf_patches[i], psf_coordinates[i], threshold, psf_dim
+                    ),
+                    centered_coords[i],
+                    point,
+                    dim,
+                )
             )
-            # break
 
-    rotated_psfs = np.sum(rotated_psfs, 0)
+    rotated_psfs = np.sum(np.stack(rotated_psfs, 0), 0)
 
     return rotated_psfs
 
@@ -411,6 +515,7 @@ def plot_psf_rings(psfs, coords, blur_levels, dim, psf_dim):
         img = ax[i].imshow(rotated_psfs, cmap="inferno", interpolation="none")
         fig.colorbar(img, ax=ax[i], fraction=0.046, pad=0.04)
         ax[i].set_title(f"Focus level: {i}")
+        ax[i].axis('off')
 
     plt.suptitle("Sampled PSF rings for each focus level", fontsize=18)
     plt.show()
@@ -509,7 +614,7 @@ def radial_subdivide(psf_coords, sys_center, maxval, return_radii=False):
     return subdivisions
 
 
-def plot_subdivisions(blur_levels, subdivisions, radii):
+def plot_subdivisions(blur_levels, subdivisions, radii, superimposed_psfs):
     """
     Plots radial subdivisions found at various focus levels
 
@@ -521,17 +626,25 @@ def plot_subdivisions(blur_levels, subdivisions, radii):
         list of lists of subdivisions for each blur level
     radii : list
         list of lists of radii for psfs at each blur level
+    superimposed_psfs : np.ndarray
+        3d numpy array of psfs, superimposed with each position (n_blur, y, x)
     """
-    fig, ax = plt.subplots(1, blur_levels, figsize=(8 * blur_levels, 5))
+    fig, ax = plt.subplots(2, blur_levels, figsize=(6 * blur_levels, 10))
     fig.set_dpi(70)
-    for i in range(blur_levels):
-        ax[i].scatter(radii[i], range(len(radii[i])))
-        ax[i].set_xlabel("radius")
-        ax[i].set_ylabel("order")
-        ax[i].set_xlim(np.array(radii).min() - 10, np.array(radii).max() + 10)
-        ax[i].set_title(f"focus {i}")
 
-        ax[i].vlines(
+    for i in range(blur_levels):
+        img = ax[0][i].imshow(superimposed_psfs[i], cmap="inferno")
+        fig.colorbar(img, ax=ax[0][i], fraction=0.046, pad=0.04)
+        ax[0][i].set_title(f"Superimposed Measurements: blur {i}")
+        ax[0][i].axis("off")
+
+        ax[1][i].scatter(radii[i], range(len(radii[i])))
+        ax[1][i].set_xlabel("radius")
+        ax[1][i].set_ylabel("order")
+        ax[1][i].set_xlim(np.array(radii).min() - 10, np.array(radii).max() + 10)
+        ax[1][i].set_title(f"Subdivisions & radii: blur {i}")
+
+        ax[1][i].vlines(
             subdivisions[i],
             ymin=0,
             ymax=len(subdivisions[i]),
@@ -694,8 +807,8 @@ def get_psf_coords(
 
     Parameters
     ----------
-    psfs : list(np.ndarray)
-        list of single-psf images (many) or superimposed psf images (one / focus level)
+    psfs : list(np.ndarray) or np.ndarray
+        list (or stack) of superimposed psf images (one / focus level) (n_blur, y, x)
     blur_levels : int
         number of different focus levels (if using a list of psfs)
     method : str, optional
@@ -726,7 +839,7 @@ def get_psf_coords(
             psf[psf < np.quantile(psf, threshold)] = 0
             ks = ksizes[i % blur_levels]
             coords[i % blur_levels].append(
-                center_crop_psf(psf, ks * 2 + 4, kernel_size=ks)[1]
+                get_psf_center(psf, ks * 2 + 4, kernel_size=ks)
             )
     elif method == "peaks":
         for f in (
@@ -853,111 +966,98 @@ def estimate_alignment_center(
 ### ---------- Single-API-call functions ---------- ###
 
 
-def get_psfs_dmm_37ux178(
-    psf_dir,
-    ext=[".bmp", ".tiff"],
-    center_crop_width=128,
-    center_crop_shape="square",
-    kernel_sizes=None,
-    usefirst=False,
+def get_lsi_psfs(
+    psf_dir: str,
+    blur_levels: int,
+    crop_size: int,
+    dim: int,
+    ksizes=[],
+    use_first=True,
+    exposures=[],
+    threshold=0.7,
+    zero_outside=0,
     blurstride=1,
+    verbose=True,
 ):
     """
-    Utility function for getting LSI psfs captured on a DMM_37UX178 sony cmos sensor.
-    Reads, locates, thresholds, and crops psf measurements. Returns as list of numpy
-    arrays.
+    Reads in psfs taken at different focus levels on the alignment axis
+    of an LSI system, processes them, and returns them as a stack
+
+    psf measurements are assumed to be in ".bmp" files, taken at every blur
+    level in increasing blur order. For example, given blur_levels = 3 and the files:
+        |- psf_dir
+            |- 1.bmp
+            |- 2.bmp
+            |- 3.bmp
+            |- 4.bmp
+            |- 5.bmp
+            |- 6.bmp
+    This function assumes that 1.bmp is more in focus than 2.bmp, and will return a stack
+    containing the processed [1.bmp, 2.bmp, 3.bmp].
 
     Parameters
     ----------
-    psf_dir : str, optional
-        path to psf dir containing list of psf measurements at different focus levels
-    ext : list, optional
-        file extension of psf measurements, by default [".bmp", ".tiff"]
-    center_crop_width : int, optional
-        width of cropped chunk (centered on center of psf), if 0 will not crop, by default 128
-    center_crop_shape : str, optional
-        shape to crop, one of {'circle', 'square'}, by default "square"
-    kernel_sizes : list, optional
-        size of convolutional kernels used to find center of psf at each blur level
-    usefirst : bool, optional
-        whether to center all psfs around position of first (assumes invariant distortion),
-        by default False
+    psf_dir : str
+        directory containing list of ".bmp" psf measurements
+    blur_levels : int
+        number of focus levels to return (regardless of how many are in dir)
+    crop_size : int
+        size of crop (square)
+    dim : int
+        size of output image (will be downsampled from crop) (square)
+    ksizes : list, optional
+        list of kernel sizes (for conv coord finding),
+        by default [7,21,45,55,65]
+    use_first : bool, optional
+        Whether to use the first blur center as the center for each blur
+        level, or to attempt to find a center for each level. Often the
+        first center is the best, assuming no optical distortion, by
+        default True
+    exposures : list, optional
+        list of floats representing exposure lengths for eahc blur level,
+        by default []
+    threshold : float, optional
+        quantile threshold value for noise removal, by default 0.7
+    zero_outside : int, optional
+        radius to zero psf outside of, used for pixel noise, by default 0
     blurstride : int, optional
-        stride to sample blur levels, by default 1
-
+        stride along (assumed in order) blur levels, by default 1
 
     Returns
     -------
-    list
-        list of centered psf measurements as number arrays of shape (width, width)
+    np.ndarray
+        stack of centered, processed psf measurements (n_blur, y, x)
     """
-    psfs = []
-    filenames = glob.glob(os.path.join(psf_dir, "*" + ext[0])) + glob.glob(
-        os.path.join(psf_dir, "*" + ext[1])
-    )
-    filenames.sort()
-    filenames = filenames[::blurstride]
+    ################ Read in psfs #################
+    psfs = read_psfs(psf_dir, verbose=verbose)[:blur_levels:blurstride]
 
-    # open and convert to numpy
-    psfs = [np.array(Image.open(file), dtype=float) for file in filenames]
+    ################ Locate psf centers #################
+    centers = []
+    if use_first:
+        first_ksize = ksizes[0] if len(ksizes) > 0 else 7
+        first_center = get_psf_center(psfs[0], kernel_size=first_ksize)
+        centers = [first_center] * len(psfs)
+    else:
+        for i, psf in tqdm(list(enumerate(psfs)), "Centering", file=sys.stdout):
+            ksize = ksize[i] if i < len(ksize) else 7
+            centers.append(get_psf_center(psf, kernel_size=ksize))
 
-    # if specified, crop all psfs to center of the in-focus psf
-    offset = None
-    if usefirst:
-        _, offset = center_crop_psf(psfs[0], center_crop_width)
+    ################ Process patches (centering, noise reduction, thresholding) #################
+    for i in range(len(centers)):
+        psfs[i] = process_psf_patch(psfs[i], centers[i], threshold, crop_size)
 
-    # crop with offset
-    if center_crop_width > 0:
-        cropped = []
-        for i, psf in tqdm(list(enumerate(psfs)), file=sys.stdout):
-            ksize = 7
-            if kernel_sizes is not None:
-                ksize = kernel_sizes[i]
-            cropped.append(
-                center_crop_psf(
-                    psf, center_crop_width, center_crop_shape, offset, ksize
-                )[0]
-            )
-        psfs = cropped
+    if exposures:
+        psfs = even_exposures(psfs, blur_levels, exposures, verbose=verbose)
 
-    return psfs
+    if zero_outside:
+        psfs = [apply_mask_center(psf, zero_outside * 2, "circle") for psf in psfs]
 
+    ################ Downsample patches #################
+    if crop_size != dim:
+        assert crop_size > dim, "Patch upsampling is not supported"
+        psfs = [diffuser_utils.pyramid_down(psf, (dim, dim)) for psf in psfs]
 
-def get_lsi_psfs(
-    psf_dir,
-    num_ims,
-    mask_shape,
-    padded_shape,
-    one_norm=True,
-    threshold=0.7,
-    blurstride=1,
-):
-    stack_xy_shape = mask_shape[-2:]
-    psfs = get_psfs_dmm_37ux178(
-        psf_dir,
-        center_crop_width=min(stack_xy_shape),
-        center_crop_shape="square",
-        usefirst=True,
-        blurstride=blurstride,
-    )[:num_ims]
-
-    # normalize
-    if one_norm:
-        psfs = [one_normalize(psf) for psf in psfs]
-
-    # threshold
-    if threshold:
-        psfs = [thresh(psf, quantile=threshold) for psf in psfs]
-
-    # center pad -> downsample to specified mask shape
-    psfs = [
-        np.squeeze(center_pad_to_shape(np.expand_dims(psf, 0), padded_shape))
-        for psf in psfs
-    ]
-    psfs = np.stack(
-        [diffuser_utils.pyramid_down(psf, stack_xy_shape) for psf in psfs], 0
-    )
-    return np.transpose(psfs, (0, 1, 2))
+    return np.stack(psfs)
 
 
 def get_lri_psfs(
@@ -1040,15 +1140,9 @@ def get_lri_psfs(
         for i in range(psf_stack.shape[0]):
             for j in range(psf_stack.shape[1]):
                 patch, coord = psf_stack[i, j], coord_stack[i, j] + dim // 2
-                patch = thresh(one_normalize(patch), quantile=threshold) * np.max(patch)
-
-                patch = np.pad(
-                    patch, ((psf_dim // 2, psf_dim // 2), (psf_dim // 2, psf_dim // 2))
+                procd_patches[i, j] = process_psf_patch(
+                    patch, coord, threshold, psf_dim
                 )
-                procd_patches[i, j] = patch[
-                    coord[0] : coord[0] + psf_dim,
-                    coord[1] : coord[1] + psf_dim,
-                ]
 
         return procd_patches
 
@@ -1109,7 +1203,8 @@ def get_lri_psfs(
     point_list = [(r, -r) for r in rs]  # radial line of PSFs
 
     if plot:
-        plot_subdivisions(blur_levels, subdivisions, radii)
+        supimp_psfs = superimpose_psfs(psfs, blur_levels, one_norm=False)
+        plot_subdivisions(blur_levels, subdivisions, radii, supimp_psfs)
 
     if use_psf_ramp:
         ramp_radii = [diffuser_utils.get_radius(*r) for r in point_list]

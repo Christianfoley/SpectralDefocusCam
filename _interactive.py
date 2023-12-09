@@ -117,7 +117,7 @@ ksizes = [7, 21, 45, 55, 65]
 exposures = [1 / 662, 1 / 110, 1 / 45, 1 / 30, 1 / 21]
 min_distance = 25
 threshold = 0.7
-psf_dim = 300
+psf_dim = 120
 polar = True
 device = torch.device("cuda:0")
 torch.cuda.get_device_name(device)
@@ -150,4 +150,84 @@ else:
     plt.imshow(psf_data[4, 383, :, :] + psf_data[0, 100, :, :])
 plt.colorbar()
 plt.show()
+# %%
+############## Turn mask into video ################
+import imageio
+import subprocess
+from scipy import io
+from PIL import Image, ImageDraw, ImageFont
+
+
+def frames_to_video_with_numbers(frames, output_path, frame_rate, waves):
+    """
+    Converts a 3D matrix of frames into an MP4 video using FFmpeg,
+    with frame numbers on the top left corner of each frame.
+
+    :param frames: 3D NumPy array of frames (x, y, time)
+    :param output_path: Path to save the MP4 video
+    :param frame_rate: Frame rate of the output video
+    """
+    # Create a temporary directory to store images
+    temp_dir = "temp_frames"
+    os.makedirs(temp_dir, exist_ok=True)
+
+    # Extract frames, add numbers, and save as images
+    for i in range(frames.shape[2]):
+        # Convert the numpy array to an Image object
+        frame_image = Image.fromarray(frames[:, :, i])
+        draw = ImageDraw.Draw(frame_image)
+
+        # Optionally set font size and type here
+        # font = ImageFont.truetype("arial.ttf", size=15)  # Example
+        font = ImageFont.truetype("arial.ttf", size=48)
+
+        # Position for the text: top-left corner
+        text_position = (10, 10)
+
+        # Draw the frame number
+        draw.text(text_position, f"{waves[i]} nm", fill="white", font=font)
+
+        # Save the frame with the number
+        frame_image.save(f"{temp_dir}/frame_{i:04d}.png")
+
+    # Use FFmpeg to convert images to video
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-r",
+        str(frame_rate),  # Frame rate
+        "-i",
+        f"{temp_dir}/frame_%04d.png",  # Input format
+        "-vcodec",
+        "libx264",  # Video codec
+        "-crf",
+        "25",  # Constant Rate Factor (quality)
+        "-pix_fmt",
+        "yuv420p",  # Pixel format
+        output_path,
+    ]
+    subprocess.run(ffmpeg_cmd)
+
+    # Clean up temporary images
+    for filename in os.listdir(temp_dir):
+        os.remove(os.path.join(temp_dir, filename))
+    os.rmdir(temp_dir)
+
+
+# %%
+mask = io.loadmat(
+    "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_11_10_2023_2_preprocessed/calibration_matrix_390-870_60chan_stride8_avg8.mat"
+)
+
+# %%
+import numpy as np
+
+mask = mask["mask"][1000 - 384 : 1000 + 384, 2023 - 512 : 2023 + 512, :]
+mask = (((mask - np.min(mask)) / np.max(mask - np.min(mask))) * 255).astype(np.uint8)
+# %%
+frames_to_video_with_numbers(
+    mask,
+    output_path="/home/cfoley_waller/defocam/calibration_matrix_390-870_60chan_stride8_avg8.mp4",
+    frame_rate=10,
+    waves=list(range(390, 870, 8)),
+)
 # %%

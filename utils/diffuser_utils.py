@@ -5,6 +5,8 @@ import torch
 import torch.optim
 import scipy.io
 import cv2
+from scipy.ndimage import generic_filter
+
 import models.rdmpy.blur as blur
 
 
@@ -42,6 +44,38 @@ def pyramid_down(image, out_shape):
         return image
     closest_pyr = cv2.pyrDown(image, (image.shape[0] // 2, image.shape[1] // 2))
     return cv2.resize(closest_pyr, out_shape, interpolation=cv2.INTER_AREA)
+
+
+def replace_outlier_with_local_median(meas, neighborhood_size=3, n_stds=4):
+    """
+    Utility function for cleaning up outlier pixels in an image.
+    Replaces pixels > n_stds standard deviations from global mean with their local median.
+
+    Parameters
+    ----------
+    meas : np.ndarray
+        2d input image (y,x).
+    neighborhood_size : int
+       size of local neighborhood in pixels, by default 3
+    n_stds : float, 4
+        number of stds from mean to classify as outlier
+
+    Returns
+    -------
+    np.ndarray
+        The cleaned 2D array with outliers replaced by the mean of their neighboring pixels.
+        This array will have the same shape and type as the input 'meas' array.
+    """
+    mean, std = np.mean(meas), np.std(meas)
+
+    def local_func(neighborhood):
+        center = neighborhood[len(neighborhood) // 2]
+        if np.abs(center - mean) > n_stds * std:
+            return np.median([n for n in neighborhood if n != center])
+        return center
+
+    footprint = np.ones((neighborhood_size, neighborhood_size))
+    return generic_filter(meas, local_func, footprint=footprint, mode="nearest")
 
 
 def img_interp1d(samples, vals, newvals, verbose=False, force_range_overlap=True):
@@ -167,6 +201,51 @@ def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
 
     del convolved_batch
     return batch
+
+
+def preprocess_meas(
+    meas, center, crop_size, dim, outlier_std_threshold=2.5, defective_pixels=[]
+):
+    """
+    Preprocesses experimental measurements by cropping, normalizing, removing outlier
+    and defective pixels, and zeroing
+
+    Parameters
+    ----------
+    meas : np.ndarray
+        2d experimental measurement
+    center : tuple
+        coordinates of the image center
+    crop_size : int
+        size of image in y and x (must be square)
+    dim : int
+        output size of image in y and x (must be square)
+    outlier_std_threshold : float, optional
+        number of stds away from median defining an outlier pixel, by default 2.5
+    defective_pixels : list, optional
+        list of coorinates of defective pixels, by default []
+
+    Returns
+    -------
+    np.ndarray
+        processed measurement patch
+    """
+    crop = lambda im: im[
+        center[0] - crop_size // 2 : center[0] + crop_size // 2,
+        center[1] - crop_size // 2 : center[1] + crop_size // 2,
+    ]
+    one_norm = lambda im: (im - np.min(im)) / np.max(im - np.min(im))
+    meas = one_norm(crop(meas))
+
+    # pixels outside (outlier_std_threshold) * img std are outliers
+    meas = replace_outlier_with_local_median(meas, n_stds=outlier_std_threshold)
+
+    if defective_pixels:
+        meas[defective_pixels] = 0
+
+    # downsample
+    meas = pyramid_down(meas, (dim, dim))
+    return meas
 
 
 def mov_avg_mask(cube, waves, start, end, step=8, width=8):

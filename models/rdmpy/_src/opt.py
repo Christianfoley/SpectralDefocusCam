@@ -344,6 +344,7 @@ def image_recon(
     model,
     opt_params,
     warm_start=None,
+    use_batch_conv=False,
     verbose=True,
     device=torch.device("cpu"),
 ):
@@ -353,8 +354,7 @@ def image_recon(
     Parameters
     ----------
     measurement : torch.Tensor
-        Measurement or batched measurement to be deblurred. Should be (N,N), (B,N,N), or (B,C,N,N).
-        Assumes B,C,N,N > 1, dims of length 1 are ignored.
+        Measurement to be deblurred. Should be (N,N).
 
     psf_data : torch.Tensor
         Stack of rotationatal Fourier transforms of the PSFs if model is 'lri',
@@ -369,6 +369,9 @@ def image_recon(
     warm_start : torch.Tensor, optional
         Warm start for the optimization. The default is None.
 
+    use_batch_conv : bool, optional
+        Whether to use batched lri convolution. The default is False.
+
     verbose : bool, optional
         Whether to print out progress. The default is True.
 
@@ -381,9 +384,7 @@ def image_recon(
         Deblurred image. Will be (N,N).
 
     """
-    if model == "lri":
-        while len(measurement.shape) < 4:
-            measurement = measurement.unsqueeze(0)
+    dim = measurement.shape
 
     if warm_start is not None:
         estimate = warm_start.clone()
@@ -391,9 +392,9 @@ def image_recon(
         if opt_params["init"] == "measurement":
             estimate = measurement.clone()
         elif opt_params["init"] == "zero":
-            estimate = torch.zeros_like(measurement, device=device)
+            estimate = torch.zeros(dim, device=device)
         elif opt_params["init"] == "noise":
-            estimate = torch.randn_like(measurement, device=device)
+            estimate = torch.randn(dim, device=device)
         else:
             raise NotImplementedError
 
@@ -406,13 +407,10 @@ def image_recon(
     else:
         raise NotImplementedError
 
-    if model == "lsi":
-        loss_fn = torch.nn.MSELoss()
-        crop = lambda x: x[..., crop:-crop, crop:-crop] if opt_params["crop"] > 0 else x
-    else:
-        loss_fn = StackwiseMSELossTV(
-            opt_params["tv_reg"], opt_params["l2_reg"], opt_params["crop"]
-        )
+    loss_fn = torch.nn.MSELoss()
+    crop = opt_params["crop"]
+
+    losses = []
 
     if opt_params["plot_loss"]:
         losses = []
@@ -421,20 +419,24 @@ def image_recon(
         tqdm(range(opt_params["iters"])) if verbose else range(opt_params["iters"])
     )
 
+    crop = lambda x: x[..., crop:-crop, crop:-crop] if opt_params["crop"] > 0 else x
+
     for it in iterations:
         # forward pass and loss
         if model == "lsi":
             measurement_guess = blur.convolve(estimate, psf_data)
-            loss = (
-                loss_fn(crop(measurement_guess), crop(measurement))
-                + tv(crop(estimate), opt_params["tv_reg"])
-                + opt_params["l2_reg"] * torch.norm(estimate)
-            )
-        else:
+        elif use_batch_conv:
             measurement_guess = blur.batch_ring_convolve(
-                estimate, psf_data, device=device
-            )
-            loss = loss_fn(measurement_guess, measurement, estimate)
+                estimate[None, None, ...], psf_data, device=device
+            )[0, 0]
+        else:
+            measurement_guess = blur.ring_convolve(estimate, psf_data, device=device)
+
+        loss = (
+            loss_fn(crop(measurement_guess), crop(measurement))
+            + tv(estimate, opt_params["tv_reg"])
+            + opt_params["l2_reg"] * torch.norm(estimate)
+        )
 
         if opt_params["plot_loss"]:
             losses += [loss.detach().cpu()]
@@ -453,7 +455,7 @@ def image_recon(
         plt.plot(range(len(losses)), losses)
         plt.show()
 
-    final = np.squeeze(util.normalize(estimate.detach().cpu().float().numpy().copy()))
+    final = util.normalize(estimate.detach().cpu().float().numpy().copy())
 
     del estimate
     gc.collect()

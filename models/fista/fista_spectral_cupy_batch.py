@@ -70,6 +70,7 @@ class fista_spectral_numpy:
         self.tau = params.get("tau", 0.5)  # Native sparsity tuning parameter
         self.tv_lambda = params.get("tv_lambda", 0.00005)  # TV tuning parameter
         self.tv_lambdaw = params.get("tv_lambdaw", 0.00005)  # TV tuning for wavelength
+        self.tv_lambdax = params.get("tv_lambdax", 0.00005)  # TV tuning for wavelength
         self.lowrank_lambda = params.get("lowrank_lambda", 0.00005)  # Low rank tuning
 
         # Number of iterations of FISTA
@@ -144,7 +145,10 @@ class fista_spectral_numpy:
             x = 0.5 * (
                 self.np.maximum(x, 0)
                 + self.tv_lib.tv3dApproxHaar(
-                    x, self.tv_lambda / self.L, self.tv_lambdaw
+                    x,
+                    self.tv_lambda / self.L,
+                    self.tv_lambdaw,
+                    self.tv_lambdax,
                 )
             )
         if self.prox_method == "native":
@@ -215,9 +219,10 @@ class fista_spectral_numpy:
                 if out_img.shape[-1] == 64:
                     fc_img = fc.pre_plot(fc.stack_rgb_opt(out_img))
                 else:
-                    fc_img = np.max(out_img, -1)
+                    fc_img = fc.stack_rgb_opt_30(out_img)
+                    # fc_img = np.max(out_img, -1)
 
-                plt.figure(figsize=(10, 3))
+                plt.figure(figsize=(10, 3), dpi=120)
                 plt.subplot(1, 2, 1), plt.imshow(fc_img / np.max(fc_img))
                 plt.title("Reconstruction")
                 plt.subplot(1, 2, 2), plt.plot(llist)

@@ -32,7 +32,7 @@ import models.LCNF.edsr
 import models.LCNF.mlp
 
 
-def get_model(config, device):
+def get_model(config, device, force_psfs=None):
     """
     Constructs a model from the given forward and recon model params. If data_precomputed
     is true, forward model will be "passthrough".
@@ -72,9 +72,14 @@ def get_model(config, device):
 
     # recon model
     if rm_params["model_name"] == "fista":
-        recon_model = fista.fista_spectral_numpy(
-            forward_model.psfs, torch.tensor(mask), params=rm_params, device=device
-        )
+        if force_psfs is None:
+            recon_model = fista.fista_spectral_numpy(
+                forward_model.psfs, torch.tensor(mask), params=rm_params, device=device
+            )
+        else:
+            recon_model = fista.fista_spectral_numpy(
+                force_psfs, torch.tensor(mask), params=rm_params, device=device
+            )
     elif rm_params["model_name"] == "unet":
         recon_model = Unet3d.Unet(n_channel_in=rm_params["num_measurements"])
     elif rm_params["model_name"] == "r2attunet":
