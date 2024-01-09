@@ -6,7 +6,7 @@ from pathlib import Path
 
 from utils.diffuser_utils import *
 import utils.helper_functions as helper
-import utils.metrics as metrics
+import SpectralDefocusCam.utils.metric_utils as metric_utils
 import data_utils.dataset as ds
 import models.ensemble as ensemble
 import models.forward as fm
@@ -86,7 +86,7 @@ def run_inference(model, dataloader, save_folder, device, metric=None):
         sample = sample.detach().cpu().numpy()[0]
         simulated = model.model1.sim_meas.detach().cpu().numpy()[0]
         if metric:
-            score = metrics.get_score(metric, pred, sample)
+            score = metric_utils.get_score(metric, pred, sample)
 
         scipy.io.savemat(
             os.path.join(save_folder, f"{i}_{metric}{score:.5f}.mat"),

@@ -6,7 +6,7 @@ from datetime import datetime
 import tqdm
 
 from utils.diffuser_utils import *
-import utils.psf_calibration_utils as psf_utils
+import SpectralDefocusCam.utils.psf_utils as psf_utils
 
 
 class ForwardModel(torch.nn.Module):
