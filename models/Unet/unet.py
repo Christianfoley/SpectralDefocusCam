@@ -170,6 +170,8 @@ class Unet(nn.Module):
             self.convres = ConvBlock(n_channel_in, n_channel_out, residual, activation)
 
     def forward(self, x):
+        x = x[..., 0, :, :]  # remove redundant channel dimension
+
         c0 = x
         c1 = self.conv1(x)
         x = self.down1(c1)

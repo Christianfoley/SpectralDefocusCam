@@ -9,6 +9,7 @@
 
 import argparse
 
+import preprocess
 import train
 import inference
 import evaluation
@@ -43,6 +44,8 @@ def main(module, config):
     Run the specified module with the given configuration.
     """
     config = read_config(config)
+    if module == "preprocess":
+        preprocess.main(config)
     if module == "train":
         train.main(config)
     if module == "inference":

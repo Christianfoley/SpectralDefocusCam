@@ -364,7 +364,7 @@ def superimpose_psfs(psfs, blur_levels=1, one_norm=True):
         superimposed image or list of images for each focus level
     """
     if not isinstance(psfs, np.ndarray):
-        assert psfs % blur_levels == 0, "Incorred number of psfs to superimpose"
+        assert len(psfs) % blur_levels == 0, "Incorred number of psfs to superimpose"
         psfs_shape = (blur_levels, len(psfs) // blur_levels) + psfs[0].shape
         psfs = np.stack(psfs).reshape(psfs_shape).transpose(1, 0, 2, 3)
 
@@ -564,6 +564,7 @@ def find_all_intersections(points, vectors):
             intersections.append(intersection)
     return intersections
 
+
 def estimate_alignment_center(
     psfs_path,
     blur_levels,
@@ -663,6 +664,7 @@ def estimate_alignment_center(
         plt.show()
 
     return true_center
+
 
 ##### ---------- LRI psf simulation ---------- #####
 
@@ -1030,7 +1032,7 @@ def get_lsi_psfs(
         stack of centered, processed psf measurements (n_blur, y, x)
     """
     ################ Read in psfs #################
-    psfs = read_psfs(psf_dir, verbose=verbose)[:blur_levels:blurstride]
+    psfs = read_psfs(psf_dir, verbose=verbose)[: blur_levels * blurstride : blurstride]
 
     ################ Locate psf centers #################
     centers = []

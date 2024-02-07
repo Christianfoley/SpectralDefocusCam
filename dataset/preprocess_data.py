@@ -136,6 +136,8 @@ def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib
         img_patch = img_data[p[0] : p[1], p[2] : p[3]]
         img_patch = (img_patch * np.expand_dims(mask_patch, 2)) / calib_vec
         img_patch = project_spectral(img_patch, num_channels)
+
+        img_patch = (img_patch / np.max(img_patch) * 256).astype(np.uint8)
         img_patches.append(img_patch)
 
     return img_patches
@@ -196,6 +198,8 @@ def preprocess_pavia_img(img, patch_size, num_channels):
     for p in patches:
         img_patch = img_data[p[0] : p[1], p[2] : p[3]]
         img_patch = project_spectral(img_patch, num_channels)
+
+        img_patch = (img_patch / np.max(img_patch) * 256).astype(np.uint8)
         img_patches.append(img_patch)
 
     return img_patches
@@ -250,6 +254,8 @@ def preprocess_fruit_img(img, patch_size, num_channels):
     for p in patches:
         img_patch = img_data[p[0] : p[1], p[2] : p[3]]
         img_patch = project_spectral(img_patch, num_channels)
+
+        img_patch = (img_patch / np.max(img_patch) * 256).astype(np.uint8)
         img_patches.append(img_patch)
 
     return img_patches

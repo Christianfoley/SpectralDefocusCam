@@ -6,8 +6,8 @@ from pathlib import Path
 
 from utils.diffuser_utils import *
 import utils.helper_functions as helper
-import SpectralDefocusCam.utils.metric_utils as metric_utils
-import data_utils.dataset as ds
+import utils.metric_utils as metric_utils
+import dataset.dataset as ds
 import models.ensemble as ensemble
 import models.forward as fm
 

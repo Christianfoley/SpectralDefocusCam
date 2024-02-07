@@ -6,7 +6,7 @@ from datetime import datetime
 import tqdm
 
 from utils.diffuser_utils import *
-import SpectralDefocusCam.utils.psf_utils as psf_utils
+import utils.psf_utils as psf_utils
 
 
 class ForwardModel(torch.nn.Module):
@@ -15,7 +15,6 @@ class ForwardModel(torch.nn.Module):
         mask,
         params,
         psf_dir=None,
-        w_init=None,
         passthrough=False,
         device=torch.device("cpu"),
     ):
@@ -34,8 +33,6 @@ class ForwardModel(torch.nn.Module):
             dictionary of params, must contain {'stack_depth', 'operations', 'psf'}
         psf_dir : str
             path to directory containing LRI or LSI psf data, by default None
-        w_init : list, optional
-            specific initialization for the blur kernels, by default None
         passthrough : bool
             option to make model "passthrough", by default False
         device : torch.Device
@@ -86,9 +83,10 @@ class ForwardModel(torch.nn.Module):
             requires_grad=self.psf["optimize"],
         )
 
-        self.mask = torch.tensor(
-            np.transpose(mask, (2, 0, 1)), dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
+        mask = np.transpose(mask, (2, 0, 1))
+        if not isinstance(mask, torch.Tensor):
+            mask = torch.tensor(mask)
+        self.mask = mask.to(self.device).to(torch.float32).unsqueeze(0)
 
         # determine forward and adjoint methods
         self.fwd = self.Hfor
@@ -117,7 +115,7 @@ class ForwardModel(torch.nn.Module):
             psf = torch.exp(-((self.X / var_yx[0]) ** 2 + (self.Y / var_yx[1]) ** 2))
             psf = psf / torch.linalg.norm(psf, ord=float("inf"))
 
-            psfs.append((psf / np.max(psf)) * exposures)
+            psfs.append((psf / torch.max(psf)) * exposures[i])
 
         if exposures:
             psfs = psf_utils.even_exposures(psfs, self.num_ims, exposures)
@@ -134,7 +132,7 @@ class ForwardModel(torch.nn.Module):
             return
 
         if self.operations["sim_blur"]:
-            self.psfs = self.simulate_lsi_psf().to(self.device).astype(torch.float32)
+            self.psfs = self.simulate_lsi_psf().to(self.device).to(torch.float32)
         elif self.psfs is None:
             if self.psf["lri"]:
                 psfs = psf_utils.load_lri_psfs(
@@ -145,8 +143,8 @@ class ForwardModel(torch.nn.Module):
                 psfs = psf_utils.get_lsi_psfs(
                     self.psf_dir,
                     self.num_ims,
-                    self.mask.shape[-2],
                     self.psf["padded_shape"],
+                    self.mask.shape[-2],
                     ksizes=self.psf.get("ksizes", []),
                     exposures=self.psf.get("exposures", []),
                     blurstride=self.psf.get("stride", 1),
@@ -207,7 +205,7 @@ class ForwardModel(torch.nn.Module):
         b = torch.sum(
             mask * crop_forward(self, torch.fft.ifft2(H * V).real), 2, keepdim=True
         )
-        return b
+        return quantize(b)
 
     def Hadj(self, b, h, mask):
         """
@@ -251,7 +249,7 @@ class ForwardModel(torch.nn.Module):
             simulated measurements (b, n, 1, y, x)
         """
         b = torch.sum(mask * batch_ring_convolve(v, h, self.device), 2, keepdim=True)
-        return b
+        return quantize(b)
 
     def Hadj_varying(self, b, h, mask):
         """
@@ -286,7 +284,7 @@ class ForwardModel(torch.nn.Module):
         Returns
         -------
         torch.Tensor
-            5d tensor (b, n, 1, y x)
+            5d tensor (b, n, 1, y, x)
         """
         # Option to pass through forward model if data is precomputed
         if self.passthrough:
@@ -310,10 +308,9 @@ class ForwardModel(torch.nn.Module):
             self.b = self.spectral_pad(self.b, spec_dim=2, size=2)
 
         if self.operations["roll"]:
-            self.b = torch.flip(self.b, dims=(1,))
-            self.b = torch.roll(self.b, -1, dims=1)
+            self.b = torch.roll(self.b, self.num_ims // 2, dims=1)
 
-        return self.b
+        return self.b.to(torch.float32)
 
 
 def build_data_pairs(data_path, model, batchsize=1):

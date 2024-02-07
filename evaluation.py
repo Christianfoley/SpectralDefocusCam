@@ -7,7 +7,7 @@ import dataframe_image as dfi
 import seaborn as sns
 
 import utils.helper_functions as helper
-import SpectralDefocusCam.utils.metric_utils as metric_utils
+import utils.metric_utils as metric_utils
 
 
 METRICS = ("mae", "mse", "cossim", "psnr", "ssim", "lpips")

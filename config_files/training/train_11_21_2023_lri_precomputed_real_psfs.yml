@@ -2,8 +2,8 @@
 
 # data paths
 checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
-psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/multipos/alignment_psfs_cross_5_blur/dim768-256_5focus"
-base_data_path: "/home/cfoley_waller/defocam/defocuscamdata/sample_data_preprocessed_lri_11_22"
+psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/multipos/alignment_psfs_telecent25um_5_blur/dim768-256_5focus"
+base_data_path: "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lri_11_22"
 false_color_mat_path: "/home/cfoley_waller/defocam/SpectralDefocusCam/utils/false_color_calib.mat"
 mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_11_10_2023_2_preprocessed/calibration_matrix_450-810_30chan_stride12_avg12.mat"
 
@@ -32,7 +32,7 @@ recon_model_params:
 
 # training params
 epochs: 300
-batch_size: 3
+batch_size: 2
 patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
 patch_crop: [768, 768] # actual size on camera
 image_center: [1000, 2000] # center of both the image and mask crops

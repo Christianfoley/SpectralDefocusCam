@@ -11,7 +11,7 @@ import os
 import glob
 import time
 
-from data_utils.preprocess_data import read_compressed
+from dataset.preprocess_data import read_compressed
 
 
 def get_data(

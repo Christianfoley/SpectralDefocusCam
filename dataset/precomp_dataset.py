@@ -10,7 +10,15 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 
 
-def get_data_precomputed(batch_size, data_split, base_path, workers=1, model_params={}):
+def get_data_precomputed(
+    batch_size,
+    data_split,
+    base_path,
+    workers=1,
+    model_params={},
+    shuffle=True,
+    norm_target=True,
+):
     """
     Return dataloaders for the train, test, and val partitions of a dataset. Dataset should be
     "pre-computed", as this dataset will directly return the raw data, with no augmentations.
@@ -33,6 +41,10 @@ def get_data_precomputed(batch_size, data_split, base_path, workers=1, model_par
     model_params : dict, optional
         Parameters for the forward model used to generate keys for precomputed data.
         Default is an empty dictionary.
+    shuffle : bool, optional
+        Whether to shuffle samples in dataloaders, by default True.
+    norm_target : bool, optional
+        Whether to normalize target, important for output numerical range, by default true
 
     Returns
     -------
@@ -42,7 +54,11 @@ def get_data_precomputed(batch_size, data_split, base_path, workers=1, model_par
     # define transform and partition data
     train_files, val_files, test_files = partition(*data_split, base_path)
     transform = transforms.Compose([toTensor(), Normalize(0, 1)])
-    target_transform = transforms.Compose([toTensor(), ReArrange(), Normalize(0, 1)])
+    target_transform = transforms.Compose(
+        [toTensor(), ReArrange(), Normalize(0, 1)]
+        if norm_target
+        else [toTensor(), ReArrange()]
+    )
 
     # make datasets
     train = PrecomputedDataset(train_files, transform, target_transform, model_params)
@@ -50,8 +66,8 @@ def get_data_precomputed(batch_size, data_split, base_path, workers=1, model_par
     test = PrecomputedDataset(test_files, transform, target_transform, model_params)
 
     # make dataloaders for pytorch
-    train_dataloader = DataLoader(train, batch_size, shuffle=True, num_workers=workers)
-    val_dataloader = DataLoader(val, batch_size, shuffle=True, num_workers=workers)
+    train_dataloader = DataLoader(train, batch_size, shuffle, num_workers=workers)
+    val_dataloader = DataLoader(val, batch_size, shuffle, num_workers=workers)
     test_dataloader = DataLoader(test, batch_size)
 
     return train_dataloader, val_dataloader, test_dataloader
@@ -69,11 +85,11 @@ def partition(train, val, test, base_path):
     Parameters
     ----------
     train : float or str
-        proportion (of 1) of dat in train set
+        proportion (of 1) of imgs in train set, or unique keyword of filename
     val : float or str
-        proportion (of 1) of dat in test set
+        proportion (of 1) of imgs in test set, or unique keyword of filename
     test : float or str
-        proportion (of 1) of dat in validation set
+        proportion (of 1) of imgs in validation set, or unique keyword of filename
     base_path : str
         path to top directory containing .mat sample files
 
@@ -88,7 +104,7 @@ def partition(train, val, test, base_path):
     elif train + val + test != 1.0:
         raise ValueError("The sum of train, val, and test should be 1")
 
-    # Function to get all .mat file paths within a directory and its subdirectories
+    # Get all .mat file paths within a directory and its subdirectories
     def get_mat_files(directory):
         mat_files = []
         for dirpath, _, filenames in os.walk(directory):
@@ -98,23 +114,41 @@ def partition(train, val, test, base_path):
         return mat_files
 
     all_files = get_mat_files(base_path)
-    random.shuffle(all_files)
 
     if isinstance(train, str):
         # In shuffled order separate out by source dataset
+        random.shuffle(all_files)
         train_set = [file for file in all_files if train in file]
         val_set = [file for file in all_files if val in file]
         test_set = [file for file in all_files if test in file]
     else:
-        # Calculate the number of files for each set
-        num_files = len(all_files)
-        num_train = int(train * num_files)
-        num_val = int(val * num_files)
+        # To prevent leakage, separate patches by their source image
+        patches_by_src = {}
+        for f in all_files:
+            src = os.path.basename(f).split("_patch_")[0]
+            if src in patches_by_src:
+                patches_by_src[src].append(f)
+            else:
+                patches_by_src[src] = [f]
+        randomkeys = list(patches_by_src.keys())
+        random.shuffle(randomkeys)
 
-        # Divide the shuffled files into train, test, and validation sets
-        train_set = all_files[:num_train]
-        val_set = all_files[num_train : num_train + num_val]
-        test_set = all_files[num_train + num_val :]
+        # Partition source images
+        num_files = len(randomkeys)
+        n_train, n_val = int(train * num_files), int(val * num_files)
+
+        train_src = randomkeys[:n_train]
+        val_src = randomkeys[n_train : n_train + n_val]
+        test_src = randomkeys[n_train + n_val :]
+
+        # Pool together patches from source images and shuffle
+        data = [[], [], []]
+        for i, src in enumerate([train_src, val_src, test_src]):
+            for key in src:
+                for file in patches_by_src[key]:
+                    data[i].append(file)
+            random.shuffle(data[i])
+        train_set, val_set, test_set = data
 
     return train_set, val_set, test_set
 

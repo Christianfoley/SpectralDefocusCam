@@ -6,8 +6,8 @@ import torch.nn.functional as F
 import models.LCNF.helpers as helpers
 from models.LCNF.helpers import register
 
-import SpectralDefocusCam.models.LCNF.lcnf_utils as utils
-from SpectralDefocusCam.models.LCNF.lcnf_utils import make_coord
+import models.LCNF.lcnf_utils as utils
+from models.LCNF.lcnf_utils import make_coord
 
 
 @register("liif")

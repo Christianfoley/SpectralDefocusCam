@@ -22,6 +22,14 @@ def fft_im(im):
     return Xi
 
 
+def quantize(img, bins=256):
+    maxfn = torch.max
+    if isinstance(img, np.ndarray):
+        maxfn = np.max
+    img = ((img / maxfn(img)) * (bins - 1)) // 1
+    return img
+
+
 def pyramid_down(image, out_shape):
     if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
         return image
@@ -278,13 +286,32 @@ def mov_avg_mask(cube, waves, start, end, step=8, width=8):
 
 
 def load_mask(
-    path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
+    path,
     patch_crop_center=[1050, 2023],  # [200, 2100],
     patch_crop_size=[768, 768],
     patch_size=[256, 256],
     old_calibration=False,
     sum_chans_2=False,
 ):
+    """
+    Loads mask from saved .mat path
+
+    Parameters
+    ----------
+    path : str
+        path to spectral filter calibration mask
+    patch_crop_center : list, optional
+        center (in xy) of usable section, by default [1050, 2023]
+    patch_crop_size : list, optional
+        size (in xy) of usable section, by default [768, 768]
+    patch_size : list, optional
+        final/downsampled size (in xy) of usable seciton, by default [256, 256]
+
+    Returns
+    -------
+    np.ndarray
+        3d spectral filter calibration matrix
+    """
     spectral_mask = scipy.io.loadmat(path)
     dims = (
         patch_crop_center[0] - patch_crop_size[0] // 2,
@@ -305,7 +332,7 @@ def load_mask(
             mask2 = mask[..., 1::2]
             mask = (mask1 + mask2)[..., 0:30]
 
-        # downsample & normalize
+        # downsample & global normalize
         nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
         mask = nm(
             np.stack(
