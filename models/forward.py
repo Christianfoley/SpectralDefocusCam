@@ -50,6 +50,9 @@ class ForwardModel(torch.nn.Module):
         # what psfs to use/simulate
         self.psf = params["psf"]
 
+        # parameters for adding noise to the mask
+        self.noise_params = params.get("mask_noise", {})
+
         ## Initialize constants
         self.DIMS0 = mask.shape[0]  # Image Dimensions
         self.DIMS1 = mask.shape[1]  # Image Dimensions
@@ -88,6 +91,11 @@ class ForwardModel(torch.nn.Module):
             mask = torch.tensor(mask)
         self.mask = mask.to(self.device).to(torch.float32).unsqueeze(0)
 
+        # initialize mask noise param defaults
+        self.noise_intensity = self.noise_params.get("intensity", 0.05)
+        self.noise_stopband = self.noise_params.get("stopband_only", True)
+        self.noise_type = self.noise_params.get("type", "gaussian")
+
         # determine forward and adjoint methods
         self.fwd = self.Hfor
         self.adj = self.Hadj
@@ -120,6 +128,43 @@ class ForwardModel(torch.nn.Module):
         if exposures:
             psfs = psf_utils.even_exposures(psfs, self.num_ims, exposures)
         return torch.stack(psfs, 0)
+
+    def sim_mask_noise(self, mask):
+        """
+        Returns a version of this model's mask abberated with some type of noise (either
+        DC or absolute gaussian noise of variance "variance").
+
+        Class Parameters
+        ----------
+        noise_intensity : float or tuple(int, int), optional
+            value or range of values of DC noise variance of gaussian noise (maxval = 1),
+            if None, taken randomly from options in initialization, by default None
+        noise_type : str, optional
+            one of {"DC", "gaussian"}, default is 'DC'
+        noise_stopband : bool or None
+            Whether to apply the noise to only low-signal pixels in the mask,
+            default is None
+
+        Returns
+        -------
+        torch.Tensor
+            noise-abberated mask (n, y, x)
+        """
+        if not isinstance(self.noise_intensity, float):
+            intensity = np.random.uniform(*self.noise_intensity)
+
+        noise = torch.abs(torch.randn(*mask.shape)) * intensity
+        if self.noise_type == "DC":
+            noise = torch.ones_like(noise) * intensity
+        noise = noise.to(mask.device)
+
+        if not self.noise_stopband:
+            mask = torch.where(mask < intensity, mask, mask + noise)
+        else:
+            mask = torch.where(mask > intensity, mask, mask + noise)
+
+        del noise
+        return mask
 
     def init_psfs(self):
         """
@@ -294,21 +339,24 @@ class ForwardModel(torch.nn.Module):
         self.init_psfs()
 
         if self.operations["sim_meas"]:
-            self.b = self.fwd(v, self.psfs, self.mask)
+            if self.operations.get("fwd_mask_noise", False):
+                self.b = self.fwd(v, self.psfs, self.sim_mask_noise(self.mask))
+            else:
+                self.b = self.fwd(v, self.psfs, self.mask)
         else:
             self.b = v
 
         if self.operations["adjoint"]:
-            self.b = self.adj(self.b, self.psfs, self.mask)
+            if self.operations.get("adj_mask_noise", False):
+                self.b = self.adj(self.b, self.psfs, self.sim_mask_noise(self.mask))
+            else:
+                self.b = self.adj(self.b, self.psfs, self.mask)
 
         # applies global normalization
         self.b = (self.b - torch.min(self.b)) / torch.max(self.b - torch.min(self.b))
 
         if self.operations["spectral_pad"]:
             self.b = self.spectral_pad(self.b, spec_dim=2, size=2)
-
-        if self.operations["roll"]:
-            self.b = torch.roll(self.b, self.num_ims // 2, dims=1)
 
         return self.b.to(torch.float32)
 

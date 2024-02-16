@@ -9,10 +9,12 @@ from scipy.ndimage import generic_filter
 
 import models.rdmpy.blur as blur
 
+import matplotlib.pyplot as plt
+
 
 def fft_psf(model, h):
     h_complex = pad_zeros_torch(model, torch.complex(h, torch.zeros_like(h)))
-    H = torch.fft.fft2(torch.fft.ifftshift(h_complex)).unsqueeze(1)
+    H = torch.fft.fft2(torch.fft.ifftshift(h_complex, dim=(-1, -2))).unsqueeze(1)
     return H
 
 
@@ -31,10 +33,33 @@ def quantize(img, bins=256):
 
 
 def pyramid_down(image, out_shape):
+    """
+    Pyramid (gaussian binned) downsampling
+    """
     if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
         return image
     closest_pyr = cv2.pyrDown(image, (image.shape[0] // 2, image.shape[1] // 2))
     return cv2.resize(closest_pyr, out_shape, interpolation=cv2.INTER_AREA)
+
+
+def binning_down(image, out_shape):
+    """
+    Binned downsampling
+    """
+    if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
+        return image
+    else:
+        assert image.shape[0] % out_shape[0] == 0, "crop & patch dims must be multiples"
+        assert image.shape[1] % out_shape[1] == 0, "crop & patch dims must be multiples"
+
+    assert (
+        image.shape[0] // out_shape[0] == image.shape[1] // out_shape[1]
+    ), "binned downsample rate must be equivalent in both dimensions"
+
+    ksize = (image.shape[0] // out_shape[0], image.shape[1] // out_shape[1])
+    avgpool = torch.nn.AvgPool2d(ksize)
+
+    return avgpool(torch.tensor(image[None, None, ...])).numpy()[0, 0]
 
 
 def replace_outlier_with_local_median(meas, neighborhood_size=3, n_stds=4):
@@ -225,8 +250,6 @@ def preprocess_meas(
         center[0] - crop_size // 2 : center[0] + crop_size // 2,
         center[1] - crop_size // 2 : center[1] + crop_size // 2,
     ]
-    one_norm = lambda im: (im - np.min(im)) / np.max(im - np.min(im))
-    meas = one_norm(crop(meas))
 
     # pixels outside (outlier_std_threshold) * img std are outliers
     meas = replace_outlier_with_local_median(meas, n_stds=outlier_std_threshold)
@@ -236,6 +259,11 @@ def preprocess_meas(
 
     # downsample
     meas = pyramid_down(meas, (dim, dim))
+
+    # normalize
+    one_norm = lambda im: (im - np.min(im)) / np.max(im - np.min(im))
+    meas = one_norm(crop(meas))
+
     return meas
 
 
@@ -292,6 +320,7 @@ def load_mask(
     patch_size=[256, 256],
     old_calibration=False,
     sum_chans_2=False,
+    downsample="pyramid",
 ):
     """
     Loads mask from saved .mat path
@@ -334,9 +363,10 @@ def load_mask(
 
         # downsample & global normalize
         nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
+        ds = binning_down if downsample == "binned" else pyramid_down
         mask = nm(
             np.stack(
-                [pyramid_down(mask[..., i], patch_size) for i in range(mask.shape[-1])],
+                [ds(mask[..., i], patch_size) for i in range(mask.shape[-1])],
                 axis=-1,
             )
         )

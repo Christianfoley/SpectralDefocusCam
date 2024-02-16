@@ -11,7 +11,7 @@ import models.Unet.unet as Unet2d
 import models.Unet.unet3d as Unet3d
 import models.Unet.R2attunet as R2attunet3d
 import models.LCNF.liif as liif
-import models.fista.fista_spectral_cupy_batch as fista
+import models.fista.fista_spectral_batch as fista
 
 
 def get_model(config, device, fwd_only=False, force_psfs=None):
@@ -59,14 +59,14 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
     # recon model
     if rm_params["model_name"] == "fista":
         if force_psfs is None:
-            recon_model = fista.fista_spectral_numpy(
+            recon_model = fista.fista_spectral(
                 forward_model.psfs,
                 torch.tensor(mask),
                 params=rm_params,
                 device=device,
             )
         else:
-            recon_model = fista.fista_spectral_numpy(
+            recon_model = fista.fista_spectral(
                 force_psfs, torch.tensor(mask), params=rm_params, device=device
             )
     elif rm_params["model_name"] == "unet":

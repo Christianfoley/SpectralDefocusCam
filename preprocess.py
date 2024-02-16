@@ -36,7 +36,7 @@ def run_preprocessing(source_path, dest_path, patch_size, overwrite=True, depth=
     """
     assert dest_path is not source_path, "Destination path must not be source path..."
     if not os.path.exists(dest_path):
-        os.path.makedirs(dest_path)
+        os.makedirs(dest_path)
     else:
         if not overwrite:
             print(f"Path exists {dest_path}, stopping...")
@@ -107,4 +107,4 @@ def main(config):
     )
 
     # precompute training pairs from preprocessed data
-    run_precomputation(config, device, batch=8)
+    run_precomputation(config, device, batch=config["batch_size"])

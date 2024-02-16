@@ -78,20 +78,24 @@ def evaluate(model, dataloader, loss_function, device):
         tuple of the validation set loss, and an example input and prediction
     """
     model.eval()
+    torch.cuda.empty_cache()
+    
     val_loss = 0
     for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
         output = model(sample["input"].to(device))
         loss = loss_function(output, sample["image"].to(device))
         val_loss += loss.item()
 
+        trace = output.detach().cpu().numpy()
+        del output
+        
     val_loss = val_loss / dataloader.__len__()
 
     gt_np = sample["image"].detach().cpu().numpy()[0]
     in_np = sample["input"].detach().cpu().numpy()[0]
-    recon_np = output.detach().cpu().numpy()[0]
 
     model.train()
-    return val_loss, in_np, recon_np, gt_np
+    return val_loss, in_np, trace, gt_np
 
 
 def generate_plot(model_input, recon, gt):
@@ -238,6 +242,7 @@ def run_training(
             mark = time.time()
             del y
             del x
+            del output
 
         lr_scheduler.step()
 
