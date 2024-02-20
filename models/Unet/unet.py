@@ -154,20 +154,26 @@ class Unet(nn.Module):
             self.up3.bias.data = 0.01 * self.up3.bias.data + 0
             self.up4.bias.data = 0.01 * self.up4.bias.data + 0
 
-        self.conv1 = ConvBlock(n_channel_in, 32, residual, activation)
-        self.conv2 = ConvBlock(32, 64, residual, activation)
-        self.conv3 = ConvBlock(64, 128, residual, activation)
-        self.conv4 = ConvBlock(128, 256, residual, activation)
+        self.conv1 = ConvBlock(
+            n_channel_in, 32, residual=residual, activation=activation
+        )
+        self.conv2 = ConvBlock(32, 64, residual=residual, activation=activation)
+        self.conv3 = ConvBlock(64, 128, residual=residual, activation=activation)
+        self.conv4 = ConvBlock(128, 256, residual=residual, activation=activation)
 
-        self.conv5 = ConvBlock(256, 256, residual, activation)
+        self.conv5 = ConvBlock(256, 256, residual=residual, activation=activation)
 
-        self.conv6 = ConvBlock(2 * 256, 128, residual, activation)
-        self.conv7 = ConvBlock(2 * 128, 64, residual, activation)
-        self.conv8 = ConvBlock(2 * 64, 32, residual, activation)
-        self.conv9 = ConvBlock(2 * 32, n_channel_out, residual, activation)
+        self.conv6 = ConvBlock(2 * 256, 128, residual=residual, activation=activation)
+        self.conv7 = ConvBlock(2 * 128, 64, residual=residual, activation=activation)
+        self.conv8 = ConvBlock(2 * 64, 32, residual=residual, activation=activation)
+        self.conv9 = ConvBlock(
+            2 * 32, n_channel_out, residual=residual, activation=activation
+        )
 
         if self.residual:
-            self.convres = ConvBlock(n_channel_in, n_channel_out, residual, activation)
+            self.convres = ConvBlock(
+                n_channel_in, n_channel_out, residual=residual, activation=activation
+            )
 
     def forward(self, x):
         x = x[..., 0, :, :]  # remove redundant channel dimension
