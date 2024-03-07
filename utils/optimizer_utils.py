@@ -1,5 +1,6 @@
 import torch.optim as optim
 import torch.nn as nn
+import torch
 import copy
 
 
@@ -50,10 +51,14 @@ def get_loss_function(name, kwparams=None):
         lfn = nn.L1Loss
     elif name == "cossim":
         lfn = nn.CosineEmbeddingLoss
+    elif name == "fista_net":
+        lfn = fista_net_loss
     elif name == "ssim":
         raise NotImplementedError(
             "See https://github.com/VainF/pytorch-msssim/tree/master"
         )
+    else:
+        raise NotImplementedError()
 
     if kwparams is None:
         kwparams = {}
@@ -103,3 +108,44 @@ def get_lr(optimizer):
     """
     for param_group in optimizer.param_groups:
         return param_group["lr"]
+
+
+class fista_net_loss(nn.Module):
+    def __init__(self, lambda_sym=0.01, lambda_st=0.001):
+        """
+        Composite MSE, L1, Sparsity and Symmetry loss as explained in:
+
+        Forward Parameters
+        ----------
+        outputs : list
+            (prediction, sym loss list, sparsity loss list)
+        y : torch.Tensor
+            ground truth
+        """
+        super(fista_net_loss, self).__init__()
+        self.lambda_sym = lambda_sym
+        self.lambda_st = lambda_st
+
+    def forward(self, outputs, y):
+        pred, loss_layers_sym, loss_layers_st = outputs
+
+        if len(pred.shape) > 4:
+            pred = torch.squeeze(pred, 1)
+
+        # Compute loss, data consistency and regularizer constraints
+        loss_discrepancy = nn.MSELoss()(pred, y) + 0.1 * nn.L1Loss()(pred, y)
+        loss_constraint = 0
+        for k, _ in enumerate(loss_layers_sym, 0):
+            loss_constraint += torch.mean(torch.pow(loss_layers_sym[k], 2))
+
+        sparsity_constraint = 0
+        for k, _ in enumerate(loss_layers_st, 0):
+            sparsity_constraint += torch.mean(torch.abs(loss_layers_st[k]))
+
+        # sym and st weights are extremely small, as norms have high base vals
+        loss = (
+            loss_discrepancy
+            + self.lambda_sym * loss_constraint
+            + self.lambda_st * sparsity_constraint
+        )
+        return loss.to(torch.float32)

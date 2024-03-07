@@ -16,7 +16,7 @@ forward_model_params:
     stride: 1
     symmetric: True
     optimize: False
-    padded_shape: 768 #only used if LRI is False
+    padded_shape: [768, 768] #only used if LRI is False
     largest_psf_diam: 128
     exposures: [0.00151, 0.00909, 0.02222, 0.03333, 0.04761] # exposures of eahc psf level
   operations:
@@ -24,7 +24,6 @@ forward_model_params:
     sim_meas: True
     adjoint: True
     spectral_pad: True
-    roll: True
   
 recon_model_params:
   model_name: "unet" # "r2attunet"

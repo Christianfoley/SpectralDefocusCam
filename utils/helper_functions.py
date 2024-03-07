@@ -14,6 +14,8 @@ from plotly.offline import init_notebook_mode, iplot
 
 import sys
 
+EPSILON = 2e-12
+
 sys.path.append("spectral_diffusercam_utils/")
 
 
@@ -109,8 +111,11 @@ def plt3D(img, title="", size=(5, 5)):
 
 
 def value_norm(x):
-    x = x - np.min(x)
-    return x / np.max(x)
+    lib = np
+    if isinstance(x, torch.Tensor):
+        lib = torch
+    x = x - lib.min(x)
+    return x / (lib.max(x) + EPSILON)
 
 
 def crop(x):
@@ -255,6 +260,33 @@ def preprocess(im):
     im = im / np.max(im)
     im[ind[0] - 2 : ind[0] + 2, ind[1] - 2 : ind[1] + 2] = 0
     return mask, psf, im
+
+
+def plot_superpixel_waves(
+    cube, waves_start=390, waves_end=870, startx=826, starty=1556
+):
+    """
+    Plots wavelengths from every filter in a single superpixel
+
+    Helper tool for analyzing filter calibrations.
+    """
+    startx, starty = 826, 1556
+    superpix = cube[:, startx : startx + 70, starty : starty + 70]
+    temp_img = np.mean(superpix, 0)
+    wavs = np.linspace(waves_start, waves_end, cube.shape[0])
+
+    # plot waves and their origins
+    fig, ax = plt.subplots(1, 2, figsize=(17, 8))
+    maxval = np.max(temp_img)
+    for i in range(1, 9):
+        for j in range(1, 9):
+            ax[0].plot(wavs, superpix[:, int(i * 8.3 - 3), int(j * 8.3 - 3)])
+            temp_img[int(i * 8.3 - 3), int(j * 8.3 - 3)] = maxval * 1.2
+
+    ax[1].imshow(temp_img)
+    ax[0].set_title("Filter waves (nm)")
+    ax[1].set_title("Sample origins")
+    plt.show()
 
 
 def plot_cube_interactive(

@@ -28,8 +28,14 @@ def quantize(img, bins=256):
     maxfn = torch.max
     if isinstance(img, np.ndarray):
         maxfn = np.max
-    img = ((img / maxfn(img)) * (bins - 1)) // 1
+    img = floor_div((img / (maxfn(img) + 2.2e-15)) * (bins - 1), 1)
     return img
+
+
+def floor_div(input, K):
+    rem = torch.remainder(input, K)
+    out = (input - rem) / K
+    return out
 
 
 def pyramid_down(image, out_shape):
@@ -38,8 +44,10 @@ def pyramid_down(image, out_shape):
     """
     if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
         return image
-    closest_pyr = cv2.pyrDown(image, (image.shape[0] // 2, image.shape[1] // 2))
-    return cv2.resize(closest_pyr, out_shape, interpolation=cv2.INTER_AREA)
+    closest_pyr = cv2.pyrDown(image, (image.shape[1] // 2, image.shape[0] // 2))
+    return cv2.resize(
+        closest_pyr, (out_shape[1], out_shape[0]), interpolation=cv2.INTER_AREA
+    )
 
 
 def binning_down(image, out_shape):
@@ -62,7 +70,9 @@ def binning_down(image, out_shape):
     return avgpool(torch.tensor(image[None, None, ...])).numpy()[0, 0]
 
 
-def replace_outlier_with_local_median(meas, neighborhood_size=3, n_stds=4):
+def replace_outlier_with_local_median(
+    meas, neighborhood_size=3, n_stds=4, high_outliers_only=False
+):
     """
     Utility function for cleaning up outlier pixels in an image.
     Replaces pixels > n_stds standard deviations from global mean with their local median.
@@ -86,7 +96,8 @@ def replace_outlier_with_local_median(meas, neighborhood_size=3, n_stds=4):
 
     def local_func(neighborhood):
         center = neighborhood[len(neighborhood) // 2]
-        if np.abs(center - mean) > n_stds * std:
+        delta = center - mean if high_outliers_only else np.abs(center - mean)
+        if delta > n_stds * std:
             return np.median([n for n in neighborhood if n != center])
         return center
 
@@ -232,10 +243,10 @@ def preprocess_meas(
         2d experimental measurement
     center : tuple
         coordinates of the image center
-    crop_size : int
-        size of image in y and x (must be square)
-    dim : int
-        output size of image in y and x (must be square)
+    crop_size : tuple
+        size of image in y and x
+    dim : tuple
+        output size of image in y and x
     outlier_std_threshold : float, optional
         number of stds away from median defining an outlier pixel, by default 2.5
     defective_pixels : list, optional
@@ -246,10 +257,12 @@ def preprocess_meas(
     np.ndarray
         processed measurement patch
     """
+    # crop
     crop = lambda im: im[
-        center[0] - crop_size // 2 : center[0] + crop_size // 2,
-        center[1] - crop_size // 2 : center[1] + crop_size // 2,
+        center[0] - crop_size[0] // 2 : center[0] + crop_size[0] // 2,
+        center[1] - crop_size[1] // 2 : center[1] + crop_size[1] // 2,
     ]
+    meas = crop(meas)
 
     # pixels outside (outlier_std_threshold) * img std are outliers
     meas = replace_outlier_with_local_median(meas, n_stds=outlier_std_threshold)
@@ -258,13 +271,48 @@ def preprocess_meas(
         meas[defective_pixels] = 0
 
     # downsample
-    meas = pyramid_down(meas, (dim, dim))
+    meas = pyramid_down(meas, dim)
 
     # normalize
     one_norm = lambda im: (im - np.min(im)) / np.max(im - np.min(im))
-    meas = one_norm(crop(meas))
+    meas = one_norm(meas)
 
     return meas
+
+
+def power_norm_mask(mask, start, end, norm_file):
+    """
+    Normalizes mask according to csv file power values.
+    (rows of wavelength, power) where power is within the range (0,1)
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        HS data cube (L,Y,X)
+    start : int
+        beginning wavelength of mask (in nm)
+    end : int
+        ending wavelength of mask (in nm)
+    norm_file : str
+        path to normalization csv file
+
+    Returns
+    -------
+    np.ndarray
+        Mask scaled by its power value
+    """
+    norm_data = np.genfromtxt(norm_file, delimiter=",")
+    power_wavs, power = norm_data[1:, 0], norm_data[1:, 1]
+
+    mask = np.copy(mask)
+    wavs = np.linspace(start, end, mask.shape[0])
+
+    for i in range(mask.shape[0]):
+        # scale by closest value in the power spectrum
+        scale = power[np.argmin(np.abs(power_wavs - wavs[i]))]
+        mask[i] = (1 / scale) * mask[i]
+
+    return mask
 
 
 def mov_avg_mask(cube, waves, start, end, step=8, width=8):
@@ -300,9 +348,20 @@ def mov_avg_mask(cube, waves, start, end, step=8, width=8):
     actual_new_waves = np.zeros_like(new_waves)
     for i, wave in enumerate(new_waves):
         idx = np.where(waves == wave)[0][0]
-        lp_cube[i] = np.mean(cube[idx - idx_width // 2 : idx + idx_width // 2 + 1], 0)
+        lp_cube[i] = np.mean(
+            cube[
+                max(0, idx - idx_width // 2) : min(
+                    idx + idx_width // 2 + 1, len(waves) - 1
+                )
+            ],
+            0,
+        )
         actual_new_waves[i] = np.mean(
-            waves[idx - idx_width // 2 : idx + idx_width // 2 + 1]
+            waves[
+                max(0, idx - idx_width // 2) : min(
+                    idx + idx_width // 2 + 1, len(waves) - 1
+                )
+            ]
         )
 
     # safety check that the given wavelengths apply to the data cube
@@ -320,7 +379,7 @@ def load_mask(
     patch_size=[256, 256],
     old_calibration=False,
     sum_chans_2=False,
-    downsample="pyramid",
+    downsample="binned",
 ):
     """
     Loads mask from saved .mat path
@@ -370,6 +429,10 @@ def load_mask(
                 axis=-1,
             )
         )
+
+        # # clean bad pixels
+        # for i in tqdm.tqdm(list(range(mask.shape[-1])), desc="cleaning outliers"):
+        #     mask[..., i] = replace_outlier_with_local_median(mask[..., i], 5, 2, True)
     return mask
 
 

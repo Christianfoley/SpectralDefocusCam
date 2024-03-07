@@ -115,20 +115,24 @@ def process_psf_patch(patch, coords, threshold, psf_dim):
         coordinates of psf in input patch (to center around)
     threshold : float
         value between 0 and 1, quantile threshold value
-    psf_dim : int
-        dimension (same for x and y) of output image patch
+    psf_dim : int or tuple
+        dimension of output image patch, if int will treat as square
 
     Returns
     -------
     np.ndarray
         processed psf patch, centered around the psf coordinates
     """
+    d0, d1 = psf_dim, psf_dim
+    if not isinstance(psf_dim, int):
+        d0, d1 = psf_dim
+
     patch = thresh(one_normalize(patch), quantile=threshold) * np.max(patch)
 
-    patch = np.pad(patch, ((psf_dim // 2, psf_dim // 2), (psf_dim // 2, psf_dim // 2)))
+    patch = np.pad(patch, ((d0 // 2, d0 // 2), (d1 // 2, d1 // 2)))
     patch = patch[
-        coords[0] : coords[0] + psf_dim,
-        coords[1] : coords[1] + psf_dim,
+        coords[0] : coords[0] + d0,
+        coords[1] : coords[1] + d1,
     ]
 
     return patch
@@ -313,7 +317,7 @@ def even_exposures(psfs, blur_levels, exposures, verbose=False):
 
 def read_psfs(psf_dir, crop=None, patchsize=None, verbose=False):
     """
-    Reads in ordered psf measurements stored as .bmp files from a directory.
+    Reads in ordered psf measurements stored as .bmp or .tiff files from a directory.
 
     Parameters
     ----------
@@ -330,6 +334,7 @@ def read_psfs(psf_dir, crop=None, patchsize=None, verbose=False):
         list of psf measurements as numpy arrays
     """
     pathlist = sorted(glob.glob(os.path.join(psf_dir, "*.bmp")))
+    pathlist += sorted(glob.glob(os.path.join(psf_dir, "*.tiff")))
     psfs = []
     assert len(pathlist) > 0, f"No psfs found at {psf_dir}"
 
@@ -979,14 +984,16 @@ def get_lsi_psfs(
     exposures=[],
     threshold=0.7,
     zero_outside=0,
+    start_idx=0,
     blurstride=1,
     verbose=True,
+    norm="",
 ):
     """
     Reads in psfs taken at different focus levels on the alignment axis
     of an LSI system, processes them, and returns them as a stack
 
-    psf measurements are assumed to be in ".bmp" files, taken at every blur
+    psf measurements are assumed to be in ".bmp or .tiff" files, taken at every blur
     level in increasing blur order. For example, given blur_levels = 3 and the files:
         |- psf_dir
             |- 1.bmp
@@ -1001,13 +1008,13 @@ def get_lsi_psfs(
     Parameters
     ----------
     psf_dir : str
-        directory containing list of ".bmp" psf measurements
+        directory containing list of ".bmp or .tiff" psf measurements
     blur_levels : int
         number of focus levels to return (regardless of how many are in dir)
-    crop_size : int
-        size of crop (square)
-    dim : int
-        size of output image (will be downsampled from crop) (square)
+    crop_size : tuple
+        size of crop
+    dim : tuple
+        size of output image (will be downsampled from crop)
     ksizes : list, optional
         list of kernel sizes (for conv coord finding),
         by default [7,21,45,55,65]
@@ -1023,16 +1030,22 @@ def get_lsi_psfs(
         quantile threshold value for noise removal, by default 0.7
     zero_outside : int, optional
         radius to zero psf outside of, used for pixel noise, by default 0
+    start_idx : int, optional
+        most in-focus index, by default 0
     blurstride : int, optional
         stride along (assumed in order) blur levels, by default 1
-
+    norm : str, optional
+        which norm to divide psfs by (l1, l2), one of {"", "one", "two"},
+        by default ""
     Returns
     -------
     np.ndarray
         stack of centered, processed psf measurements (n_blur, y, x)
     """
     ################ Read in psfs #################
-    psfs = read_psfs(psf_dir, verbose=verbose)[: blur_levels * blurstride : blurstride]
+    psfs = read_psfs(psf_dir, verbose=verbose)[
+        start_idx : blur_levels * blurstride : blurstride
+    ]
 
     ################ Locate psf centers #################
     centers = []
@@ -1056,9 +1069,16 @@ def get_lsi_psfs(
         psfs = [apply_mask_center(psf, zero_outside * 2, "circle") for psf in psfs]
 
     ################ Downsample patches #################
-    if crop_size != dim:
-        assert crop_size > dim, "Patch upsampling is not supported"
-        psfs = [diffuser_utils.pyramid_down(psf, (dim, dim)) for psf in psfs]
+    if crop_size[0] != dim[0] or crop_size[1] != dim[1]:
+        assert (
+            crop_size[0] > dim[0] or crop_size[1] > dim[1]
+        ), "Patch upsampling is not supported"
+        psfs = [diffuser_utils.pyramid_down(psf, dim) for psf in psfs]
+
+    ############### Apply specified norm #################
+    if norm:
+        fn = np.sum if norm == "one" else np.linalg.norm
+        psfs = [psf / fn(psf) for psf in psfs]
 
     return np.stack(psfs)
 
@@ -1086,7 +1106,7 @@ def get_lri_psfs(
     from a directory, processes them, and returns a psf_data tensor,
     containing LRI psfs in polar form for each ring.
 
-    psf measurements are assumed to be in ".bmp" files, taken at every blur
+    psf measurements are assumed to be in ".bmp or .tiff" files, taken at every blur
     level at each position before moving on to the next. For example, given
     blur_levels = 3 and the files:
         |- psf_dir
@@ -1106,7 +1126,7 @@ def get_lri_psfs(
     Parameters
     ----------
     psf_dir : str
-        directory containing list of ".bmp" psf measurements
+        directory containing list of ".bmp or .tiff" psf measurements
     blur_levels : int
         number of focus levels per position
     crop_size : int

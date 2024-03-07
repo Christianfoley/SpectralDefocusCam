@@ -173,9 +173,6 @@ class ForwardModel(torch.nn.Module):
             - If using LRI psfs, loads in calibrated psf data
             - If using measured LSI psfs, loads and preprocesses psf stack
         """
-        if self.passthrough:
-            return
-
         if self.operations["sim_blur"]:
             self.psfs = self.simulate_lsi_psf().to(self.device).to(torch.float32)
         elif self.psfs is None:
@@ -189,13 +186,15 @@ class ForwardModel(torch.nn.Module):
                     self.psf_dir,
                     self.num_ims,
                     self.psf["padded_shape"],
-                    self.mask.shape[-2],
+                    self.mask.shape[-2:],
                     ksizes=self.psf.get("ksizes", []),
                     exposures=self.psf.get("exposures", []),
+                    start_idx=self.psf.get("idx_offset", 0),
                     blurstride=self.psf.get("stride", 1),
                     threshold=self.psf.get("threshold", 0.7),
-                    zero_outside=self.psf.get("largest_psf_diam", 0),
+                    zero_outside=self.psf.get("largest_psf_diam", 128),
                     use_first=self.psf.get("use_first", True),
+                    norm=self.psf.get("norm", ""),
                 )
             self.psfs = torch.tensor(psfs, device=self.device)
 
@@ -250,7 +249,7 @@ class ForwardModel(torch.nn.Module):
         b = torch.sum(
             mask * crop_forward(self, torch.fft.ifft2(H * V).real), 2, keepdim=True
         )
-        return quantize(b)
+        return b
 
     def Hadj(self, b, h, mask):
         """
@@ -294,7 +293,7 @@ class ForwardModel(torch.nn.Module):
             simulated measurements (b, n, 1, y, x)
         """
         b = torch.sum(mask * batch_ring_convolve(v, h, self.device), 2, keepdim=True)
-        return quantize(b)
+        return b  # quantize(b)
 
     def Hadj_varying(self, b, h, mask):
         """
@@ -351,9 +350,6 @@ class ForwardModel(torch.nn.Module):
                 self.b = self.adj(self.b, self.psfs, self.sim_mask_noise(self.mask))
             else:
                 self.b = self.adj(self.b, self.psfs, self.mask)
-
-        # applies global normalization
-        self.b = (self.b - torch.min(self.b)) / torch.max(self.b - torch.min(self.b))
 
         if self.operations["spectral_pad"]:
             self.b = self.spectral_pad(self.b, spec_dim=2, size=2)

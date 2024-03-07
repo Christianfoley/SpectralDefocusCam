@@ -21,6 +21,7 @@ def get_data(
     patch_size=(256, 256),
     workers=1,
     apply_rand_aug=True,
+    shuffle=False,
 ):
     assert os.path.exists(base_path), "base data path does not exist"
     pavia_chunked = glob.glob(os.path.join(base_path, "paviadata_chunked/Pavia*.mat"))
@@ -109,11 +110,13 @@ def get_data(
     # make dataloaders for pytorch
     train_loader, val_loader, test_loader = None, None, None
     if data_split[0] > 0:
-        train_loader = DataLoader(train, batch_size, shuffle=True, num_workers=workers)
+        train_loader = DataLoader(
+            train, batch_size, shuffle=shuffle, num_workers=workers
+        )
     if data_split[1] > 0:
-        val_loader = DataLoader(val, batch_size, shuffle=True, num_workers=workers)
+        val_loader = DataLoader(val, batch_size, shuffle=shuffle, num_workers=workers)
     if data_split[2] > 0:
-        test_loader = DataLoader(test, batch_size)
+        test_loader = DataLoader(test, batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
 

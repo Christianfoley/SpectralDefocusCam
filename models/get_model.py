@@ -12,6 +12,7 @@ import models.Unet.unet3d as Unet3d
 import models.Unet.R2attunet as R2attunet3d
 import models.LCNF.liif as liif
 import models.fista.fista_spectral_batch as fista
+import models.fistanet.fista_net_spectral as fistanet
 
 
 def get_model(config, device, fwd_only=False, force_psfs=None):
@@ -69,12 +70,27 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
             recon_model = fista.fista_spectral(
                 force_psfs, torch.tensor(mask), params=rm_params, device=device
             )
+    elif rm_params["model_name"] == "fistanet":
+        recon_model = fistanet.fista_net_spectral(
+            forward_model.psfs,
+            torch.tensor(mask.transpose(2, 0, 1)),
+            params=rm_params,
+            device=device,
+        )
     elif rm_params["model_name"] == "unet":
-        recon_model = Unet3d.Unet(n_channel_in=rm_params["num_measurements"])
+        recon_model = Unet3d.Unet(
+            n_channel_in=rm_params["num_measurements"],
+            norm=rm_params.get("norm", "batch"),
+            residual=rm_params.get("residual", False),
+            activation=rm_params.get("activation", "selu"),
+        )
     elif rm_params["model_name"] == "unet2d":
         recon_model = Unet2d.Unet(
             n_channel_in=rm_params["num_measurements"],
             n_channel_out=rm_params["spectral_depth"],
+            norm=rm_params.get("norm", "batch"),
+            residual=rm_params.get("residual", False),
+            activation=rm_params.get("activation", "selu"),
         )
     elif rm_params["model_name"] == "r2attunet":
         recon_model = R2attunet3d.R2AttUnet(

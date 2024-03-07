@@ -8,9 +8,9 @@ import utils.helper_functions as fc
 
 
 class fista_spectral(torch.nn.Module):
-    def __init__(self, h, mask, params, learned_recon_model=None, device="cpu"):
+    def __init__(self, h, mask, params, device="cpu"):
+        super(fista_spectral, self).__init__()
         self.device = device
-        print(self.device)
 
         ## Initialize constants
         self.psfs = h
@@ -26,6 +26,7 @@ class fista_spectral(torch.nn.Module):
         self.H = []
         self.Hconj = []
         for i in range(0, h.shape[0]):
+
             self.H.append(
                 torch.unsqueeze(
                     torch.fft.fft2(
@@ -45,12 +46,6 @@ class fista_spectral(torch.nn.Module):
 
         self.prox_method = params.get("prox_method", "tv")  # 'non-neg', 'tv', 'native'
 
-        # If using a learned inversion, initialize learned model
-        self.learned_inversion = False
-        if learned_recon_model is not None:
-            self.learned_inversion = True
-            self.recon_model = learned_recon_model
-
         # Define soft-thresholding constants
         self.tau = params.get("tau", 0.5)  # Native sparsity tuning parameter
         self.tv_lambda = params.get("tv_lambda", 0.00005)  # TV tuning parameter
@@ -64,6 +59,7 @@ class fista_spectral(torch.nn.Module):
 
         self.show_recon_progress = params.get("show_progress", True)  # print progress
         self.print_every = params.get("print_every", 20)  # Frequency to print progress
+        self.plot = params.get("plot", True)  # Whether to include plots in progress
 
         self.l_data = []
         self.l_tv = []
@@ -93,7 +89,7 @@ class fista_spectral(torch.nn.Module):
 
     def pad(self, x):
         if len(x.shape) == 2:
-            out = F.pad(x, (self.px, self.px, self.py, self.py)[::-1], mode="constant")
+            out = F.pad(x, (self.px, self.px, self.py, self.py), mode="constant")
         elif len(x.shape) == 3:
             out = F.pad(x, (0, 0, self.px, self.px, self.py, self.py), mode="constant")
         return out
@@ -164,58 +160,24 @@ class fista_spectral(torch.nn.Module):
             l = torch.linalg.norm(err) ** 2
         return l
 
-    def lrnd_recon(self, x):
-        x = torch.stack([self.crop(self.Hadj(x[i], i)) for i in range(x.shape[0])])
-        x = torch.transpose(torch.transpose(x, -1, -3), -2, -1)[None, ...].float()
-        x = F.pad(x, (0, 0, 0, 0, 1, 1), mode="constant", value=0.0)
-
-        mean, std = x.mean(), x.std()
-        norm = lambda y: (y - mean) / (std + torch.tensor(2e-10))
-        denorm = lambda y: (y + mean) * std
-
-        x_inv = self.recon_model(norm(x)).detach()[:, 1:-1, ...]
-        x_inv = denorm(torch.transpose(torch.transpose(x_inv[0], 0, 2), 0, 1))
-
-        return self.pad(x_inv)
-
-    def clip(self, xk, percentile=0.99):
-        v = torch.quantile(xk, percentile)
-        return torch.clamp(xk, None, v)
-
     # Main FISTA update
     def fista_update(self, vk, tk, xk, inputs):
         error = torch.zeros(self.DIMS0, self.DIMS1, device=self.device)
         grads = torch.zeros_like(vk, device=self.device)
 
-        if self.learned_inversion:
-            estimates = torch.zeros_like(inputs, device=self.device)
-
         for i in range(0, inputs.shape[0]):
-            #### Learned inversion implementation
-            if self.learned_inversion:
-                estimates[i] = self.Hfor(vk, i)
-                error_i = estimates[i] - inputs[i]
-                error += error_i
-            else:
-                error = error + self.Hfor(vk, i) - inputs[i]
-                grads = grads + self.Hadj(error, i)
+            error_i = self.Hfor(vk, i) - inputs[i]
+            grads_i = self.Hadj(error_i, i)
 
-        if self.learned_inversion:
-            sim_recon = self.lrnd_recon(estimates)
-            meas_recon = self.lrnd_recon(inputs)
-            grads = sim_recon - meas_recon
-            del meas_recon, sim_recon
+            error += error_i
+            grads += grads_i
 
         error = error / inputs.shape[0]
         grads = grads / inputs.shape[0]
 
-        # xup = self.clip(self.prox(vk - 1 / self.L * grads)) #
         xup = self.prox(vk - 1 / self.L * grads)
         tup = 1 + torch.sqrt(1 + 4 * tk**2) / 2
         vup = xup + (tk - 1) / tup * (xup - xk)
-
-        del grads
-        torch.cuda.empty_cache()
 
         return vup, tup, xup, self.loss(xup, error)
 
@@ -245,25 +207,21 @@ class fista_spectral(torch.nn.Module):
             if self.show_recon_progress == True and i % self.print_every == 0:
                 print("iteration: ", i, " loss: ", l)
                 out_img = self.crop(xk).detach().cpu().numpy()
-
-                if out_img.shape[-1] == 64:
-                    fc_img = fc.pre_plot(fc.stack_rgb_opt(out_img))
-                else:
+                if self.plot:
                     fc_img = fc.stack_rgb_opt_30(out_img)
 
-                plt.figure(figsize=(10, 3), dpi=120)
-                plt.subplot(1, 2, 1), plt.imshow(fc_img / np.max(fc_img))
-                plt.title("Reconstruction")
-                plt.subplot(1, 2, 2), plt.plot(llist)
-                plt.title("Loss")
-                plt.show()
+                    plt.figure(figsize=(10, 3), dpi=120)
+                    plt.subplot(1, 2, 1), plt.imshow(fc_img / np.max(fc_img))
+                    plt.title("Reconstruction")
+                    plt.subplot(1, 2, 2), plt.plot(llist)
+                    plt.title("Loss")
+                    plt.show()
                 self.out_img = out_img
         xout = self.crop(xk)
         self.llist = llist
         return xout, llist
 
     def forward(self, input):
-        input = torch.squeeze(input)
         assert len(input.shape) in {4, 3}, "Only accepts meas stack, or batch of stacks"
 
         if len(input.shape) == 4:

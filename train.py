@@ -79,16 +79,19 @@ def evaluate(model, dataloader, loss_function, device):
     """
     model.eval()
     torch.cuda.empty_cache()
-    
+
     val_loss = 0
     for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
         output = model(sample["input"].to(device))
         loss = loss_function(output, sample["image"].to(device))
         val_loss += loss.item()
 
-        trace = output.detach().cpu().numpy()
+        if isinstance(output, torch.Tensor):
+            trace = output.detach().cpu().numpy()
+        else:
+            trace = output[0].detach().cpu().numpy()
         del output
-        
+
     val_loss = val_loss / dataloader.__len__()
 
     gt_np = sample["image"].detach().cpu().numpy()[0]

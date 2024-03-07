@@ -9,6 +9,9 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from torch.utils.data import DataLoader
 
+# SETS RANDOM SEED DO NOT CHANGE
+SEED = 6.626
+
 
 def get_data_precomputed(
     batch_size,
@@ -98,6 +101,7 @@ def partition(train, val, test, base_path):
     tuple(list, list, list)
         list of filepaths to samples in the train, test, and validation sets
     """
+    random.seed(SEED)
     if isinstance(train, str):
         possible = {"harvard", "fruit", "pavia"}
         assert train in possible and val in possible and test in possible
@@ -111,7 +115,7 @@ def partition(train, val, test, base_path):
             for filename in filenames:
                 if filename.endswith(".mat"):
                     mat_files.append(os.path.join(dirpath, filename))
-        return mat_files
+        return sorted(mat_files)
 
     all_files = get_mat_files(base_path)
 
@@ -266,7 +270,10 @@ class PrecomputedDataset(Dataset):
 
     def get_data_key(self, key_list):
         """
-        Gets the corresponding parameter key from the keylist
+        Gets the corresponding parameter key from the keylist.
+        As a verification step, attempts to match current model parameters to the creation model of
+        the given data. If no key is found, will assume that the longest key corresponds to the
+        parameter dictionary, and proceed with a warning.
 
         Parameters
         ----------
@@ -290,7 +297,12 @@ class PrecomputedDataset(Dataset):
                     break
             except:
                 continue
-        assert key is not None, "No key has been found"
+        if key is None:
+            print(
+                "Warning: No matching data key has been found. This may not be the correct dataset. "
+                "Proceeding with longest key."
+            )
+            key = max(key_list, key=len)
         return key
 
 
