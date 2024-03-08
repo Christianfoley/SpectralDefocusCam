@@ -161,13 +161,19 @@ def preprocess_harvard_data(datapath, outpath, patch_size, num_channels=30):
     num_channels : int
         number of spectral channels
     """
-    imgs = glob.glob(os.path.join("CA_hsdbi/*.mat")) + glob.glob(
-        os.path.join(datapath, "CZ_hsdb/*.mat")
-    )
+    imgs_hsdbi = glob.glob(os.path.join(datapath, "Cz_hsdbi/*.mat"))
     with open(os.path.join(datapath, "CZ_hsdbi/calib.txt"), "r") as f:
-        calib_vals = [float(num) for num in f.readline().split("   ")[1:]]
+        calib_vals_hsdbi = [float(num) for num in f.readline().split("   ")[1:]]
 
-    for img in tqdm.tqdm(imgs, desc="Preprocessing Harvard Data"):
+    imgs_hsdb = glob.glob(os.path.join(datapath, "CZ_hsdb/*.mat"))
+    with open(os.path.join(datapath, "CZ_hsdb/calib.txt"), "r") as f:
+        calib_vals_hsdb = [float(num) for num in f.readline().split("   ")[1:]]
+
+    for i, img in tqdm.tqdm(
+        list(enumerate(imgs_hsdb + imgs_hsdbi)), desc="Preprocessing Harvard Data"
+    ):
+        calib_vals = calib_vals_hsdb if i < len(imgs_hsdb) else calib_vals_hsdbi
+
         sourcepath = img
         img = io.loadmat(img)
 
