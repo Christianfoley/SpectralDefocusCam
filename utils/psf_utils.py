@@ -1011,8 +1011,8 @@ def get_lsi_psfs(
         directory containing list of ".bmp or .tiff" psf measurements
     blur_levels : int
         number of focus levels to return (regardless of how many are in dir)
-    crop_size : tuple
-        size of crop
+    crop_size : tuple or int
+        size of crop, if int assumes square
     dim : tuple
         size of output image (will be downsampled from crop)
     ksizes : list, optional
@@ -1042,6 +1042,9 @@ def get_lsi_psfs(
     np.ndarray
         stack of centered, processed psf measurements (n_blur, y, x)
     """
+    if isinstance(crop_size, int):
+        crop_size = (crop_size, crop_size) 
+
     ################ Read in psfs #################
     psfs = read_psfs(psf_dir, verbose=verbose)[
         start_idx : blur_levels * blurstride : blurstride

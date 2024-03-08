@@ -95,9 +95,9 @@ def replace_outlier_with_local_median(
     mean, std = np.mean(meas), np.std(meas)
 
     def local_func(neighborhood):
-        center = neighborhood[len(neighborhood) // 2]
+        center = neighborhood[len(neighborhood) // 2]  # nbrhood=unrolled 2d window
         delta = center - mean if high_outliers_only else np.abs(center - mean)
-        if delta > n_stds * std:
+        if delta > (n_stds * std) + mean:
             return np.median([n for n in neighborhood if n != center])
         return center
 
@@ -421,19 +421,19 @@ def load_mask(
             mask = (mask1 + mask2)[..., 0:30]
 
         # downsample & global normalize
-        nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
+
         ds = binning_down if downsample == "binned" else pyramid_down
-        mask = nm(
-            np.stack(
-                [ds(mask[..., i], patch_size) for i in range(mask.shape[-1])],
-                axis=-1,
-            )
+        mask = np.stack(
+            [ds(mask[..., i], patch_size) for i in range(mask.shape[-1])],
+            axis=-1,
         )
 
         # # clean bad pixels
-        # for i in tqdm.tqdm(list(range(mask.shape[-1])), desc="cleaning outliers"):
-        #     mask[..., i] = replace_outlier_with_local_median(mask[..., i], 5, 2, True)
-    return mask
+        for i in tqdm.tqdm(list(range(mask.shape[-1])), desc="cleaning outliers"):
+            mask[..., i] = replace_outlier_with_local_median(mask[..., i], 9, 7, True)
+
+        nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
+    return nm(mask)
 
 
 def process_mat_files(input_directory, output_directory, overwrite=True):
