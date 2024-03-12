@@ -140,9 +140,32 @@ def pre_plot(x, flip=True):
     return x
 
 
+def select_and_average_bands(
+    data_cube,
+    fc_range=(450, 810),
+    spectral_ranges=[(400, 495), (495, 600), (600, 750)],
+):
+    wavs = np.linspace(fc_range[0], fc_range[1], data_cube.shape[-1])
+
+    averaged_bands = []
+    for spectral_range in spectral_ranges:
+        indices = np.where((wavs >= spectral_range[0]) & (wavs <= spectral_range[1]))[0]
+
+        if len(indices) > 0:
+            averaged_band = np.mean(data_cube[:, :, indices], axis=2)
+        else:
+            averaged_band = np.zeros_like(data_cube[:, :, 0])
+        averaged_bands.append(averaged_band)
+        print(np.max(averaged_band), np.min(averaged_band))
+
+    # Stack the averaged bands along the last dimension to form an RGB image
+    rgb_image = np.stack(averaged_bands, axis=-1)[:, :, ::-1]
+    return rgb_image
+
+
 def stack_rgb_opt_30(
     reflArray,
-    spectral_range=[450, 810],
+    fc_range=[450, 810],
     offset=0,
     scaling=[1, 1, 1],
 ):
@@ -155,7 +178,7 @@ def stack_rgb_opt_30(
     ----------
     reflArray : np.ndarray
         hyperspectral image (y,x,lambda)
-    spectral_range : list, optional
+    fc_range : list, optional
         range from lowest to highest wavelength, by default [450, 810]
     offset : int, optional
         offset index in reflarray for start of range, by default 0
@@ -168,7 +191,7 @@ def stack_rgb_opt_30(
         false color RGB image, (y,x,3)
     """
     # Validate input
-    if len(spectral_range) != 2:
+    if len(fc_range) != 2:
         raise ValueError(
             "spectral_range should have two elements (start and end wavelengths)."
         )
@@ -184,13 +207,13 @@ def stack_rgb_opt_30(
 
     # enforce offset and fix bounds
     reflArray = reflArray[:, :, offset:]
-    spectral_range = [
-        max(spectral_range[0], cmfs.wavelengths[0]),
-        min(spectral_range[1], cmfs.wavelengths[-1]),
+    fc_range = [
+        max(fc_range[0], cmfs.wavelengths[0]),
+        min(fc_range[1], cmfs.wavelengths[-1]),
     ]
 
     # align the cmfs to the requested range and integrate over channels
-    wavelengths = np.linspace(*spectral_range[:2], reflArray.shape[2], endpoint=False)
+    wavelengths = np.linspace(*fc_range[:2], reflArray.shape[2], endpoint=False)
     idcs = np.squeeze(
         np.array([np.where(cmfs.wavelengths == int(w)) for w in wavelengths])
     )
@@ -263,25 +286,43 @@ def preprocess(im):
 
 
 def plot_superpixel_waves(
-    cube, waves_start=390, waves_end=870, startx=826, starty=1556
+    cube, waves_start=390, waves_end=870, startx=1557, starty=826, scale=1
 ):
     """
     Plots wavelengths from every filter in a single superpixel
 
     Helper tool for analyzing filter calibrations.
     """
-    startx, starty = 826, 1556
-    superpix = cube[:, startx : startx + 70, starty : starty + 70]
+    sp_size, filt_size, offset = 66 / scale, 8.3 / scale, 4 / scale
+
+    superpix = cube[:, starty : int(starty + sp_size), startx : int(startx + sp_size)]
+
     temp_img = np.mean(superpix, 0)
     wavs = np.linspace(waves_start, waves_end, cube.shape[0])
 
     # plot waves and their origins
     fig, ax = plt.subplots(1, 2, figsize=(17, 8))
     maxval = np.max(temp_img)
-    for i in range(1, 9):
-        for j in range(1, 9):
-            ax[0].plot(wavs, superpix[:, int(i * 8.3 - 3), int(j * 8.3 - 3)])
-            temp_img[int(i * 8.3 - 3), int(j * 8.3 - 3)] = maxval * 1.2
+    for i in range(0, 8):
+        for j in range(0, 8):
+            ax[0].plot(
+                wavs,
+                np.mean(
+                    superpix[
+                        :,
+                        int(offset + i * filt_size)
+                        - 1 : int(offset + i * filt_size)
+                        + 2,
+                        int(offset + j * filt_size)
+                        - 1 : int(offset + j * filt_size)
+                        + 2,
+                    ],
+                    (-1, -2),
+                ),
+            )
+            temp_img[int(offset + i * filt_size), int(offset + j * filt_size)] = (
+                maxval * 1.2
+            )
 
     ax[1].imshow(temp_img)
     ax[0].set_title("Filter waves (nm)")
@@ -296,6 +337,7 @@ def plot_cube_interactive(
     use_false_color=True,
     fc_range=[450, 810],
     fc_scaling=[1, 1, 1],
+    avg_block_size=1,
 ):
     """
     Returns an interactive plotly figure using ipywidgets
@@ -315,7 +357,8 @@ def plot_cube_interactive(
         range of wavelengths in data cube (start, end), by default [450, 810]
     fc_scaling : list, optional
         scaling of FC channels (r g b), by default [1, 1, 1]
-
+    avg_block_size : int, optional
+        size of block around clicked pixel to average
     Returns
     -------
     go.FigureWidget
@@ -324,6 +367,7 @@ def plot_cube_interactive(
     mean_image = np.mean(data_cube, axis=2)
 
     # init plot with the fc image, an empty vector plot, and a marker trace
+    wavs = np.linspace(*fc_range, data_cube.shape[-1])
     fig = go.FigureWidget(
         make_subplots(rows=1, cols=2, subplot_titles=["False Color Image", "Response"])
     )
@@ -334,13 +378,22 @@ def plot_cube_interactive(
         image_trace = go.Image(z=projected_false_color)
     else:
         image_trace = go.Heatmap(z=mean_image, colorscale="Viridis")
-    vector_plot_trace = go.Scatter(y=[], mode="lines+markers")
+    vector_plot_trace = go.Scatter(
+        x=wavs, y=[], mode="lines+markers", name="point response"
+    )
+    vector_plot_trace_mean = go.Scatter(
+        x=wavs,
+        y=data_cube.mean(axis=(0, 1)),
+        mode="lines+markers",
+        name=f"local {avg_block_size} pix response",
+    )
     marker_trace = go.Scatter(
         x=[], y=[], mode="markers", marker=dict(color="red", size=10)
     )
 
     fig.add_trace(image_trace, row=1, col=1)
     fig.add_trace(vector_plot_trace, row=1, col=2)
+    fig.add_trace(vector_plot_trace_mean, row=1, col=2)
     fig.add_trace(marker_trace, row=1, col=1)
     fig.update_layout(
         height=height,
@@ -348,21 +401,35 @@ def plot_cube_interactive(
         title_text="Click on image to view response vector",
     )
     fig.update_yaxes(range=[0, np.max(data_cube)], row=1, col=2)
+    fig.update_yaxes(range=[0, np.max(data_cube)], row=1, col=2)
 
     # Function to update the plot based on click
     def update_plot_on_click(trace, points, selector):
         """On-click update function for plot"""
         if points.xs and points.ys:
             x, y = int(points.xs[0]), int(points.ys[0])
+            bs = avg_block_size // 2
+
+            # Define the slice ranges
+            y_start = max(y - bs, 0)
+            y_end = min(y + bs + 1, data_cube.shape[0])
+            x_start = max(x - bs, 0)
+            x_end = min(x + bs + 1, data_cube.shape[1])
+
+            # Extract the region from data_cube and compute mean
             depth_vector = data_cube[y, x, :]
+            depth_vector_mean = data_cube[y_start:y_end, x_start:x_end, :].mean(
+                axis=(0, 1)
+            )
 
             # Update plot and img marker
             with fig.batch_update():
                 fig.data[1].y = depth_vector
+                fig.data[2].y = depth_vector_mean
                 fig.layout.annotations[1].text = f"Response at ({x}, {y})"
 
-                fig.data[2].x = [x]
-                fig.data[2].y = [y]
+                fig.data[3].x = [x]
+                fig.data[3].y = [y]
 
     # Attach the click event to the heatmap
     fig.data[0].on_click(update_plot_on_click)

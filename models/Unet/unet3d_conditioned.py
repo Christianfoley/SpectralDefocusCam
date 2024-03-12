@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils.diffuser_utils import *
 
 
 class ConvBlock(nn.Module):
@@ -84,6 +85,9 @@ class ConvBlock(nn.Module):
 class Unet(nn.Module):
     def __init__(
         self,
+        psfs,
+        mask,
+        batch_size,
         n_channel_in=1,
         n_channel_out=1,
         norm="batch",
@@ -135,20 +139,53 @@ class Unet(nn.Module):
             self.up2.bias.data = 0.01 * self.up2.bias.data + 0
             self.up3.bias.data = 0.01 * self.up3.bias.data + 0
             self.up4.bias.data = 0.01 * self.up4.bias.data + 0
+
+        # ------------ Condition each layer on PSFS ------------#
+        self.depth = psfs.shape[0]
+        self.psfs = psfs.to(torch.float32)
+        psf_conditions = []
+        z_dims = [32, 16, 8, 4, 2]
+
+        for i in range(5):
+            psf_conditions.append(
+                psfs[None, :, None, ...].repeat(1, 1, z_dims[i], 1, 1).to(torch.float32)
+            )
+            psfs = F.avg_pool2d(psfs, kernel_size=2, stride=2)
+
+        self.psfs1 = nn.parameter.Parameter(psf_conditions[0], False)
+        self.psfs2 = nn.parameter.Parameter(psf_conditions[1], False)
+        self.psfs3 = nn.parameter.Parameter(psf_conditions[2], False)
+        self.psfs4 = nn.parameter.Parameter(psf_conditions[3], False)
+        self.psfs5 = nn.parameter.Parameter(psf_conditions[4], False)
+        del psfs, psf_conditions
+
+        # ----------- Make mask  parameter ------------#
+        self.mask = nn.parameter.Parameter(mask, False)
+        self.DIMS0 = mask.shape[-2]  # Image Dimensions
+        self.DIMS1 = mask.shape[-1]  # Image Dimensions
+        self.PAD_SIZE0 = int((self.DIMS0))  # Pad size
+        self.PAD_SIZE1 = int((self.DIMS1))  # Pad size
+
+        # ------------------------------------------------------#
+
         self.conv1 = ConvBlock(
-            n_channel_in, 32, norm=norm, residual=residual, activation=activation
+            n_channel_in + self.depth,
+            32,
+            norm=norm,
+            residual=residual,
+            activation=activation,
         )
         self.conv2 = ConvBlock(
-            32, 64, norm=norm, residual=residual, activation=activation
+            32 + self.depth, 64, norm=norm, residual=residual, activation=activation
         )
         self.conv3 = ConvBlock(
-            64, 128, norm=norm, residual=residual, activation=activation
+            64 + self.depth, 128, norm=norm, residual=residual, activation=activation
         )
         self.conv4 = ConvBlock(
-            128, 256, norm=norm, residual=residual, activation=activation
+            128 + self.depth, 256, norm=norm, residual=residual, activation=activation
         )
         self.conv5 = ConvBlock(
-            256, 256, norm=norm, residual=residual, activation=activation
+            256 + self.depth, 256, norm=norm, residual=residual, activation=activation
         )
         self.conv6 = ConvBlock(
             2 * 256, 128, norm=norm, residual=residual, activation=activation
@@ -171,21 +208,57 @@ class Unet(nn.Module):
                 activation=activation,
             )
 
+    def Hadj(self, b, h, mask):
+        """
+        LSI spatially invariant convolution adjoint method
+
+        Parameters
+        ----------
+        b : torch.Tensor
+            simulated (or not) measurement (b, n, 1, y, x)
+        h : torch.Tensor
+            measured or simulated psf data (n, y, x)
+        mask : torch.Tensor
+            spectral calibration matrix/mask (c, y, x)
+
+        Returns
+        -------
+        torch.Tensor
+            LSI system adjoint
+        """
+        Hconj = torch.conj(fft_psf(self, h))
+        B_adj = fft_im(pad_zeros_torch(self, b * mask))
+        v_hat = crop_forward(self, torch.fft.ifft2(Hconj * B_adj).real)
+        return v_hat
+
     def forward(self, x):
+        x = F.pad(
+            self.Hadj(x, self.psfs, self.mask), (0, 0, 0, 0, 1, 1), "constant", 0
+        ).to(torch.float32)
+
         c0 = x
-        c1 = self.conv1(x)
+
+        c1 = self.conv1(
+            torch.cat((x, self.psfs1.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
+        )
         x = self.down1(c1)
 
-        c2 = self.conv2(x)
+        c2 = self.conv2(
+            torch.cat((x, self.psfs2.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
+        )
         x = self.down2(c2)
 
-        c3 = self.conv3(x)
+        c3 = self.conv3(
+            torch.cat((x, self.psfs3.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
+        )
         x = self.down3(c3)
 
-        c4 = self.conv4(x)
+        c4 = self.conv4(
+            torch.cat((x, self.psfs4.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
+        )
         x = self.down4(c4)
 
-        x = self.conv5(x)
+        x = self.conv5(torch.cat((x, self.psfs5.repeat(x.shape[0], 1, 1, 1, 1)), dim=1))
         x = self.up1(x)
         x = torch.cat([x, c4], 1)  # x[:,0:128]*x[:,128:256],
         x = self.conv6(x)
@@ -204,4 +277,4 @@ class Unet(nn.Module):
 
         if self.residual:
             x = torch.add(x, self.convres(c0))
-        return x[:, 0, ...]  # remove image dimension
+        return x[:, 0, ..., 1:-1, :, :]  # remove image dimension

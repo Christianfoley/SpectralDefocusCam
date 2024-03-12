@@ -1,6 +1,7 @@
 import numpy as np
 import os, glob, csv
 import scipy.io as io
+import h5py
 from scipy.interpolate import interp1d
 import tqdm
 
@@ -56,6 +57,7 @@ def save_patches(patches, outpath, sourcepath):
         patch_dict = {"image": patch}
         output_filename = f"{filename}_patch_{i}.mat"
         output_path = os.path.join(outpath, output_filename)
+
         io.savemat(output_path, patch_dict)
 
 
@@ -106,7 +108,9 @@ def project_spectral(img, out_channels, chan_range=None):
     return f_out(projection_x_vals)
 
 
-def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib=True):
+def preprocess_harvard_img(
+    img, patch_size, calib_vec, num_channels, apply_calib=True, skip_masked=True
+):
     """
     Preprocesses harvard images into patches of given size and returns a list of patch
     data. When patching will ignore patches which contain part of the mask.
@@ -123,7 +127,7 @@ def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib
         number of spectral channels desired in output image
     """
     img_data, mask_data = img["ref"], img["lbl"]
-    calib_vec = np.expand_dims(np.array(calib_vec, dtype=float), axis=(0, 1))
+    calib_vec = np.expand_dims(np.array(calib_vec), axis=(0, 1))
     if not apply_calib:
         calib_vec = np.ones_like(calib_vec)
     patches = get_patches(patch_size, img_data.shape)
@@ -131,10 +135,11 @@ def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib
     img_patches = []
     for p in patches:
         mask_patch = mask_data[p[0] : p[1], p[2] : p[3]]
-        if np.min(mask_patch) == 0:
-            continue
         img_patch = img_data[p[0] : p[1], p[2] : p[3]]
-        img_patch = (img_patch * np.expand_dims(mask_patch, 2)) / calib_vec
+        if np.min(mask_patch) == 0 and skip_masked:
+            continue
+
+        img_patch = (img_patch) / calib_vec
         img_patch = project_spectral(img_patch, num_channels)
 
         img_patch = img_patch.astype(np.float32)
@@ -144,7 +149,9 @@ def preprocess_harvard_img(img, patch_size, calib_vec, num_channels, apply_calib
     return img_patches
 
 
-def preprocess_harvard_data(datapath, outpath, patch_size, num_channels=30):
+def preprocess_harvard_data(
+    datapath, outpath, patch_size, num_channels=30, skip_masked=True
+):
     """
     Preprocesses all harvard data into patches. Interpolates along spectral dimension and
     saves each patch as a .mat file.
@@ -161,6 +168,10 @@ def preprocess_harvard_data(datapath, outpath, patch_size, num_channels=30):
     num_channels : int
         number of spectral channels
     """
+    if os.path.exists(outpath):
+        print("Found existing data at harvard path... Skipping.")
+        return
+
     imgs_hsdbi = glob.glob(os.path.join(datapath, "Cz_hsdbi/*.mat"))
     with open(os.path.join(datapath, "CZ_hsdbi/calib.txt"), "r") as f:
         calib_vals_hsdbi = [float(num) for num in f.readline().split("   ")[1:]]
@@ -173,12 +184,17 @@ def preprocess_harvard_data(datapath, outpath, patch_size, num_channels=30):
         list(enumerate(imgs_hsdb + imgs_hsdbi)), desc="Preprocessing Harvard Data"
     ):
         calib_vals = calib_vals_hsdb if i < len(imgs_hsdb) else calib_vals_hsdbi
+        try:
+            sourcepath = img
+            img = io.loadmat(img)
 
-        sourcepath = img
-        img = io.loadmat(img)
-
-        patches = preprocess_harvard_img(img, patch_size, calib_vals, num_channels)
-        save_patches(patches, outpath, sourcepath)
+            patches = preprocess_harvard_img(
+                img, patch_size, calib_vals, num_channels, skip_masked=skip_masked
+            )
+            save_patches(patches, outpath, sourcepath)
+        except Exception as e:
+            print(f"Skipping {os.path.basename(img)}:{e}")
+            continue
 
 
 def preprocess_pavia_img(img, patch_size, num_channels):
@@ -231,14 +247,21 @@ def preprocess_pavia_data(datapath, outpath, patch_size, num_channels=30):
     num_channels : int
         number of spectral channels in output
     """
+    if os.path.exists(outpath):
+        print("Found existing data at Pavia path... Skipping.")
+        return
     imgs = glob.glob(os.path.join(datapath, "*.mat"))
 
     for img in tqdm.tqdm(imgs, desc="Preprocessing Pavia Data"):
         sourcepath = img
-        img = io.loadmat(img)
+        try:
+            img = io.loadmat(img)
 
-        patches = preprocess_pavia_img(img, patch_size, num_channels)
-        save_patches(patches, outpath, sourcepath)
+            patches = preprocess_pavia_img(img, patch_size, num_channels)
+            save_patches(patches, outpath, sourcepath)
+        except Exception as e:
+            print(f"Skipping {os.path.basename(img)}:{e}")
+            continue
 
 
 def preprocess_fruit_img(img, patch_size, num_channels):
@@ -287,11 +310,83 @@ def preprocess_fruit_data(datapath, outpath, patch_size, num_channels=30):
     num_channels : int
         number of spectral channels in output
     """
+    if os.path.exists(outpath):
+        print("Found existing data at fruit path... Skipping.")
+        return
     imgs = glob.glob(os.path.join(datapath, "*.mat"))
 
     for img in tqdm.tqdm(imgs, desc="Preprocessing Fruit Data"):
         sourcepath = img
-        img = io.loadmat(img)
+        try:
+            img = io.loadmat(img)
 
-        patches = preprocess_fruit_img(img, patch_size, num_channels)
-        save_patches(patches, outpath, sourcepath)
+            patches = preprocess_fruit_img(img, patch_size, num_channels)
+            save_patches(patches, outpath, sourcepath)
+        except Exception as e:
+            print(f"Skipping {os.path.basename(img)}:{e}")
+            continue
+
+
+def preprocess_icvl_img(img, patch_size, num_channels):
+    """
+    Preprocesses hyperspectral scenes into patches of given size and
+    returns a list of patch data.
+
+    Parameters
+    ----------
+    img : dict or hd5py container
+        dict containing "rad" key for image data
+    patch_size : tuple
+        desired size of patches
+    num_channels : int
+        number of spectral channels in output
+    """
+    img_data = np.array(img["rad"]).transpose(1, 2, 0)[::-1, ::-1]
+    patches = get_patches(patch_size, img_data.shape)
+
+    img_patches = []
+    for p in patches:
+        img_patch = img_data[p[0] : p[1], p[2] : p[3]]
+        # NOTE fudge factor for speed reasons: 31 -> 30 channels
+        # img_patch = project_spectral(img_patch, num_channels)
+        img_patch = img_patch[:, :, :-1]
+
+        img_patch = img_patch.astype(np.float32)
+        img_patch = img_patch / np.max(img_patch)
+        img_patches.append(img_patch)
+
+    return img_patches
+
+
+def preprocess_icvl_data(datapath, outpath, patch_size, num_channels=30):
+    """
+    Preprocess ICVL image into simulation-ready patches of given size.
+    For specifics see: https://icvl.cs.bgu.ac.il/hyperspectral/
+
+    Parameters
+    ----------
+    datapath : str
+        path to folder containing compressed fruit ".mat" colorspace files
+    outpath : str
+        destination data folder
+    patch_size : tuple
+        x and y patch size
+    num_channels : int
+        number of spectral channels in output
+    """
+    if os.path.exists(outpath):
+        print("Found existing data at ICVL path... Skipping.")
+        return
+
+    imgs = glob.glob(os.path.join(datapath, "*.mat"))
+
+    for img in tqdm.tqdm(imgs, desc="Preprocessing ICVL Data"):
+        sourcepath = img
+        try:
+            img = h5py.File(img)
+
+            patches = preprocess_icvl_img(img, patch_size, num_channels)
+            save_patches(patches, outpath, sourcepath)
+        except Exception as e:
+            print(f"Skipping {os.path.basename(img)}:{e}")
+            continue

@@ -1043,12 +1043,14 @@ def get_lsi_psfs(
         stack of centered, processed psf measurements (n_blur, y, x)
     """
     if isinstance(crop_size, int):
-        crop_size = (crop_size, crop_size) 
+        crop_size = (crop_size, crop_size)
 
     ################ Read in psfs #################
-    psfs = read_psfs(psf_dir, verbose=verbose)[
-        start_idx : blur_levels * blurstride : blurstride
-    ]
+    psfs = read_psfs(psf_dir, verbose=verbose)
+    if blurstride < 0:
+        psfs = psfs[-1:]
+    else:
+        psfs = psfs[start_idx : blur_levels * blurstride : blurstride]
 
     ################ Locate psf centers #################
     centers = []

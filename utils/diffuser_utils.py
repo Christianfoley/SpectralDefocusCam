@@ -265,7 +265,9 @@ def preprocess_meas(
     meas = crop(meas)
 
     # pixels outside (outlier_std_threshold) * img std are outliers
-    meas = replace_outlier_with_local_median(meas, n_stds=outlier_std_threshold)
+    meas = replace_outlier_with_local_median(
+        meas, n_stds=outlier_std_threshold, high_outliers_only=True
+    )
 
     if defective_pixels:
         meas[defective_pixels] = 0
@@ -280,7 +282,7 @@ def preprocess_meas(
     return meas
 
 
-def power_norm_mask(mask, start, end, norm_file):
+def power_norm_mask(mask, start, end, norm_file="", norm_section=None):
     """
     Normalizes mask according to csv file power values.
     (rows of wavelength, power) where power is within the range (0,1)
@@ -293,23 +295,32 @@ def power_norm_mask(mask, start, end, norm_file):
         beginning wavelength of mask (in nm)
     end : int
         ending wavelength of mask (in nm)
-    norm_file : str
-        path to normalization csv file
+    norm_file : str, optional
+        path to normalization csv file, if None will normalize by average
+        power over non-filtered section
 
     Returns
     -------
     np.ndarray
         Mask scaled by its power value
     """
-    norm_data = np.genfromtxt(norm_file, delimiter=",")
-    power_wavs, power = norm_data[1:, 0], norm_data[1:, 1]
+    if norm_file:
+        norm_data = np.genfromtxt(norm_file, delimiter=",")
+        power_wavs, power = norm_data[1:, 0], norm_data[1:, 1]
 
-    mask = np.copy(mask)
+    mask = np.copy(mask).astype(np.float32)
     wavs = np.linspace(start, end, mask.shape[0])
 
+    ns = norm_section
+    scales = np.mean(mask[:, ns[0] : ns[1], ns[2] : ns[3]], axis=(-1, -2))
+    scales / np.max(scales)
+    print(scales)
     for i in range(mask.shape[0]):
         # scale by closest value in the power spectrum
-        scale = power[np.argmin(np.abs(power_wavs - wavs[i]))]
+        if norm_file:
+            scale = power[np.argmin(np.abs(power_wavs - wavs[i]))]
+        else:
+            scale = scales[i]
         mask[i] = (1 / scale) * mask[i]
 
     return mask
@@ -401,6 +412,7 @@ def load_mask(
         3d spectral filter calibration matrix
     """
     spectral_mask = scipy.io.loadmat(path)
+    nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
     dims = (
         patch_crop_center[0] - patch_crop_size[0] // 2,
         patch_crop_center[0] + patch_crop_size[0] // 2,
@@ -420,8 +432,11 @@ def load_mask(
             mask2 = mask[..., 1::2]
             mask = (mask1 + mask2)[..., 0:30]
 
-        # downsample & global normalize
+        # mask = mask / np.sum(
+        #     mask, axis=-1, keepdims=True
+        # )  # L1-norm each filter transmission
 
+        # downsample & global normalize
         ds = binning_down if downsample == "binned" else pyramid_down
         mask = np.stack(
             [ds(mask[..., i], patch_size) for i in range(mask.shape[-1])],
@@ -430,7 +445,7 @@ def load_mask(
 
         # # clean bad pixels
         for i in tqdm.tqdm(list(range(mask.shape[-1])), desc="cleaning outliers"):
-            mask[..., i] = replace_outlier_with_local_median(mask[..., i], 9, 7, True)
+            mask[..., i] = replace_outlier_with_local_median(mask[..., i], 11, 7, True)
 
         nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
     return nm(mask)

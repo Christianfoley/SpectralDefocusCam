@@ -5,8 +5,9 @@ import numpy as np
 import torch
 import scipy.io as io
 
-import models.rdmpy.calibrate as calibrate
+from multiprocessing import Pool
 
+import models.rdmpy.calibrate as calibrate
 import models.forward as forward
 import dataset.preprocess_data as prep_data
 import utils.psf_utils as psf_utils
@@ -54,6 +55,10 @@ def run_preprocessing(source_path, dest_path, patch_size, overwrite=True, depth=
     fruit_dest = os.path.join(dest_path, "fruit_data")
     prep_data.preprocess_fruit_data(fruit_source, fruit_dest, patch_size, depth)
 
+    icvl_source = os.path.join(source_path, "icvldata")
+    icvl_dest = os.path.join(dest_path, "icvl_data")
+    prep_data.preprocess_icvl_data(icvl_source, icvl_dest, patch_size, depth)
+
 
 def run_precomputation(config, device, batch=1):
     """
@@ -78,6 +83,7 @@ def run_precomputation(config, device, batch=1):
     forward.build_data_pairs(os.path.join(prepd_data, "harvard_data"), fm, batch)
     forward.build_data_pairs(os.path.join(prepd_data, "pavia_data"), fm, batch)
     forward.build_data_pairs(os.path.join(prepd_data, "fruit_data"), fm, batch)
+    forward.build_data_pairs(os.path.join(prepd_data, "icvl_data"), fm, batch)
 
 
 def main(config):
@@ -99,6 +105,7 @@ def main(config):
         "source_data_path",
         "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/sample_data/",
     )
+
     run_preprocessing(
         source_data_path,
         config["base_data_path"],
@@ -107,4 +114,5 @@ def main(config):
     )
 
     # precompute training pairs from preprocessed data
-    run_precomputation(config, device, batch=config["batch_size"])
+    if config["passthrough"]:
+        run_precomputation(config, device, batch=config["batch_size"])

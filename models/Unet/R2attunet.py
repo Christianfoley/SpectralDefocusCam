@@ -4,23 +4,6 @@ import torch.nn as nn
 import torch
 
 
-class conv_block(nn.Module):
-    def __init__(self, ch_in, ch_out):
-        super(conv_block, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv3d(ch_in, ch_out, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.BatchNorm3d(ch_out),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(ch_out, ch_out, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.BatchNorm3d(ch_out),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
 class up_conv(nn.Module):
     def __init__(self, ch_in, ch_out):
         super(up_conv, self).__init__()
@@ -108,29 +91,34 @@ class R2AttUnet(nn.Module):
         https://github.com/LeeJunHyun/Image_Segmentation
     """
 
-    def __init__(self, in_ch=1, output_ch=1, t=2):
+    def __init__(self, psfs, spec_chans=32, in_ch=1, output_ch=1, t=2):
         super(R2AttUnet, self).__init__()
 
         self.Maxpool = nn.MaxPool3d(kernel_size=2, stride=2)
         self.Upsample = nn.Upsample(scale_factor=2)
 
-        self.RRCNN1 = RRCNN_block(ch_in=in_ch, ch_out=32, t=t)
+        # ------------ Condition each layer on PSFS ------------#
+        self.depth = psfs.shape[0]
+        psfs = psfs[None, :, None, ...].repeat(1, 1, spec_chans, 1, 1).to(torch.float32)
+        psf_conditions = [psfs]
 
-        self.RRCNN2 = RRCNN_block(ch_in=32, ch_out=64, t=t)
+        for i in range(3):
+            psfs = self.Maxpool(psfs)
+            psf_conditions.append(psfs)
+        self.psfs1 = nn.parameter.Parameter(psf_conditions[0])
+        self.psfs2 = nn.parameter.Parameter(psf_conditions[1])
+        self.psfs3 = nn.parameter.Parameter(psf_conditions[2])
+        self.psfs4 = nn.parameter.Parameter(psf_conditions[3])
+        del psfs, psf_conditions
+        # ------------------------------------------------------#
 
-        self.RRCNN3 = RRCNN_block(ch_in=64, ch_out=128, t=t)
+        self.RRCNN1 = RRCNN_block(ch_in=in_ch + self.depth, ch_out=32, t=t)
 
-        self.RRCNN4 = RRCNN_block(ch_in=128, ch_out=256, t=t)
+        self.RRCNN2 = RRCNN_block(ch_in=32 + self.depth, ch_out=64, t=t)
 
-        # self.RRCNN5 = RRCNN_block(ch_in=512, ch_out=1024, t=t)
+        self.RRCNN3 = RRCNN_block(ch_in=64 + self.depth, ch_out=128, t=t)
 
-        # self.Up5 = up_conv(ch_in=1024, ch_out=512)
-        # self.Att5 = Attention_block(F_g=512, F_l=512, F_int=256)
-        # self.Up_RRCNN5 = RRCNN_block(ch_in=1024, ch_out=512, t=t)
-
-        # self.Up4 = up_conv(ch_in=512, ch_out=256)
-        # self.Att4 = Attention_block(F_g=256, F_l=256, F_int=128)
-        # self.Up_RRCNN4 = RRCNN_block(ch_in=512, ch_out=256, t=t)
+        self.RRCNN4 = RRCNN_block(ch_in=128 + self.depth, ch_out=256, t=t)
 
         self.Up4 = up_conv(ch_in=256, ch_out=128)
         self.Att4 = Attention_block(F_g=128, F_l=128, F_int=64)
@@ -148,32 +136,28 @@ class R2AttUnet(nn.Module):
 
     def forward(self, x):
         # encoding path
+        x = torch.cat((x, self.psfs1), dim=1)
+
         x1 = self.RRCNN1(x)
-
         x2 = self.Maxpool(x1)
+
+        x2 = torch.cat((x2, self.psfs2), dim=1)
         x2 = self.RRCNN2(x2)
-
         x3 = self.Maxpool(x2)
+
+        x3 = torch.cat((x3, self.psfs3), dim=1)
         x3 = self.RRCNN3(x3)
-
         x4 = self.Maxpool(x3)
+
+        x4 = torch.cat((x4, self.psfs4), dim=1)
         x4 = self.RRCNN4(x4)
-
-        # x5 = self.Maxpool(x4)
-        # x5 = self.RRCNN5(x5)
-
-        # decoding + concat path
-        # d5 = self.Up5(x5)
-        # x4 = self.Att5(g=d5, x=x4)
-        # d5 = torch.cat((x4, d5), dim=1)
-        # d5 = self.Up_RRCNN5(d5)
 
         d4 = self.Up4(x4)
         x3 = self.Att4(g=d4, x=x3)
         d4 = torch.cat((x3, d4), dim=1)
         d4 = self.Up_RRCNN4(d4)
 
-        d3 = self.Up3(d4)
+        d3 = self.Up3(x3)
         x2 = self.Att3(g=d3, x=x2)
         d3 = torch.cat((x2, d3), dim=1)
         d3 = self.Up_RRCNN3(d3)

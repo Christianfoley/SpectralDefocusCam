@@ -9,6 +9,7 @@ import models.forward as fm
 
 import models.Unet.unet as Unet2d
 import models.Unet.unet3d as Unet3d
+import models.Unet.unet3d_conditioned as Unet3dcond
 import models.Unet.R2attunet as R2attunet3d
 import models.LCNF.liif as liif
 import models.fista.fista_spectral_batch as fista
@@ -52,7 +53,7 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
         mask,
         params=fm_params,
         psf_dir=config["psf_dir"],
-        passthrough=config["data_precomputed"],
+        passthrough=config["data_precomputed"] and config.get("passthrough", True),
         device=device,
     )
     forward_model.init_psfs()
@@ -92,8 +93,19 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
             residual=rm_params.get("residual", False),
             activation=rm_params.get("activation", "selu"),
         )
+    elif rm_params["model_name"] == "unet_conditioned":
+        recon_model = Unet3dcond.Unet(
+            psfs=forward_model.psfs,
+            mask=torch.tensor(mask.transpose(2, 0, 1)),
+            batch_size=config["batch_size"],
+            n_channel_in=rm_params["num_measurements"],
+            norm=rm_params.get("norm", "batch"),
+            residual=rm_params.get("residual", False),
+            activation=rm_params.get("activation", "selu"),
+        )
     elif rm_params["model_name"] == "r2attunet":
         recon_model = R2attunet3d.R2AttUnet(
+            psfs=forward_model.psfs,
             in_ch=rm_params["num_measurements"],
             t=rm_params.get("recurrence_t", 2),
         )

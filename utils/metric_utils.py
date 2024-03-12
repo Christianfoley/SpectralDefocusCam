@@ -26,7 +26,7 @@ def get_cossim_score(img1, img2):
     img1, img2 = img1.flatten(), img2.flatten()
     img1, img2 = np.expand_dims(img1, 0), np.expand_dims(img2, 0)
     score = cosine_similarity(img1, img2)
-    return score
+    return score.item()
 
 
 # structural (x-y) metrics

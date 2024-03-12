@@ -245,6 +245,9 @@ class PrecomputedDataset(Dataset):
         key = self.get_data_key(data.keys())
         y, x = data["image"], data[key]
 
+        # handling various use cases - need to force into (nlyx) tensor format
+        if len(x.shape) == 3:
+            x = x.transpose(2, 0, 1)[None, ...]
         if len(x.shape) == 5:
             assert x.shape[0] == 1, f"Found batched input:  {self.file_list[idx]}"
             x = x[0]
@@ -300,9 +303,9 @@ class PrecomputedDataset(Dataset):
         if key is None:
             print(
                 "Warning: No matching data key has been found. This may not be the correct dataset. "
-                "Proceeding with longest key."
+                "Proceeding with key = 'image'."
             )
-            key = max(key_list, key=len)
+            key = "image"
         return key
 
 

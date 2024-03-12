@@ -81,16 +81,17 @@ def evaluate(model, dataloader, loss_function, device):
     torch.cuda.empty_cache()
 
     val_loss = 0
-    for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
-        output = model(sample["input"].to(device))
-        loss = loss_function(output, sample["image"].to(device))
-        val_loss += loss.item()
+    with torch.no_grad():
+        for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
+            output = model(sample["input"].to(device))
+            loss = loss_function(output, sample["image"].to(device))
+            val_loss += loss.item()
 
-        if isinstance(output, torch.Tensor):
-            trace = output.detach().cpu().numpy()
-        else:
-            trace = output[0].detach().cpu().numpy()
-        del output
+            if isinstance(output, torch.Tensor):
+                trace = output.detach().cpu().numpy()
+            else:
+                trace = output[0].detach().cpu().numpy()
+            del output
 
     val_loss = val_loss / dataloader.__len__()
 
@@ -207,15 +208,17 @@ def run_training(
     )
     writer = SummaryWriter(log_dir=save_folder)
     helper.write_yaml(config, os.path.join(save_folder, "training_config.yml"))
+    accum_steps = config.get("grad_accumulate", 1)
 
     print(f"Readtime: {train_dataloader.dataset.readtime}")
     w_list = []
     val_loss_list = []
     train_loss_list = []
-    logged_graph = False
+    logged_graph = config.get("no_graph", False)
     for i in tqdm.tqdm(range(config["epochs"]), desc="Epochs", position=0):
         dl_time, inf_time, prop_time, train_loss = 0, 0, 0, 0
         mark = time.time()
+        idx = 0
         for sample in tqdm.tqdm(train_dataloader, desc="iters", position=1, leave=0):
             dl_time += time.time() - mark
             mark = time.time()
@@ -233,8 +236,9 @@ def run_training(
 
             # Update the model
             loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
+            if ((idx + 1) % accum_steps == 0) or (idx + 1 == len(train_dataloader)):
+                optimizer.step()
+                optimizer.zero_grad()
 
             # Enforce a physical constraint on the blur parameters
             if model.model1.psf["optimize"]:
@@ -246,6 +250,21 @@ def run_training(
             del y
             del x
             del output
+            idx += 1
+
+            # running validation
+            if idx % 1000 == 0:
+                val_loss, input_np, recon_np, ground_truth_np = evaluate(
+                    model, val_dataloader, loss_function, device=device
+                )
+                val_loss_list.append(val_loss)
+                print(
+                    f"\nEpoch ({i} {idx}) losses  (train, val) : ({train_loss}, {val_loss})"
+                )
+
+                if plot:
+                    fig = generate_plot(input_np, recon_np, ground_truth_np)
+                    writer.add_figure(f"epoch_{i}_{idx}_fig", fig)
 
         lr_scheduler.step()
 

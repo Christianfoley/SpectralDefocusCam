@@ -60,6 +60,7 @@ class fista_spectral(torch.nn.Module):
         self.show_recon_progress = params.get("show_progress", True)  # print progress
         self.print_every = params.get("print_every", 20)  # Frequency to print progress
         self.plot = params.get("plot", True)  # Whether to include plots in progress
+        self.fc_range = params.get("fc_range", [450, 810])
 
         self.l_data = []
         self.l_tv = []
@@ -208,7 +209,7 @@ class fista_spectral(torch.nn.Module):
                 print("iteration: ", i, " loss: ", l)
                 out_img = self.crop(xk).detach().cpu().numpy()
                 if self.plot:
-                    fc_img = fc.stack_rgb_opt_30(out_img)
+                    fc_img = fc.stack_rgb_opt_30(out_img, fc_range=self.fc_range)
 
                     plt.figure(figsize=(10, 3), dpi=120)
                     plt.subplot(1, 2, 1), plt.imshow(fc_img / np.max(fc_img))
