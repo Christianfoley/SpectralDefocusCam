@@ -1315,3 +1315,20 @@ def load_lri_psfs(psf_dir, num_ims):
         psf_data.append(mat["psf_data"])
 
     return np.stack(psf_data, 0)
+
+def load_psf_npy(psf_dir, norm = None):
+    files = os.listdir(psf_dir)
+    # sort by number in filename
+    files = sorted(files, key=lambda x: int(x.split(".")[0].split("_")[-1]))
+    psfs = []
+    for file in files:
+        if file.endswith(".npy"):
+            psf = np.load(os.path.join(psf_dir, file))
+            psfs.append(psf)
+    
+    if norm:
+        fn = np.sum if norm == "one" else np.linalg.norm
+        psfs = [psf / fn(psf) for psf in psfs]
+
+    return np.stack(psfs, 0)
+
