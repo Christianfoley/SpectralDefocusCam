@@ -97,7 +97,6 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
         recon_model = Unet3dcond.Unet(
             psfs=forward_model.psfs,
             mask=torch.tensor(mask.transpose(2, 0, 1)),
-            batch_size=config["batch_size"],
             n_channel_in=rm_params["num_measurements"],
             norm=rm_params.get("norm", "batch"),
             residual=rm_params.get("residual", False),

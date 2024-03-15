@@ -211,11 +211,14 @@ def run_training(
     accum_steps = config.get("grad_accumulate", 1)
 
     print(f"Readtime: {train_dataloader.dataset.readtime}")
+    total_updates = 0
     w_list = []
     val_loss_list = []
     train_loss_list = []
     logged_graph = config.get("no_graph", False)
-    for i in tqdm.tqdm(range(config["epochs"]), desc="Epochs", position=0):
+    for i in tqdm.tqdm(
+        range(config["epochs"] - config.get("offset", 0)), desc="Epochs", position=0
+    ):
         dl_time, inf_time, prop_time, train_loss = 0, 0, 0, 0
         mark = time.time()
         idx = 0
@@ -239,6 +242,7 @@ def run_training(
             if ((idx + 1) % accum_steps == 0) or (idx + 1 == len(train_dataloader)):
                 optimizer.step()
                 optimizer.zero_grad()
+                total_updates += 1
 
             # Enforce a physical constraint on the blur parameters
             if model.model1.psf["optimize"]:
@@ -252,19 +256,29 @@ def run_training(
             del output
             idx += 1
 
-            # running validation
-            if idx % 1000 == 0:
-                val_loss, input_np, recon_np, ground_truth_np = evaluate(
-                    model, val_dataloader, loss_function, device=device
-                )
-                val_loss_list.append(val_loss)
-                print(
-                    f"\nEpoch ({i} {idx}) losses  (train, val) : ({train_loss}, {val_loss})"
-                )
+            # running mid-epoch validation
+            # if idx % 500 == 0:
+            #     val_loss, input_np, recon_np, ground_truth_np = evaluate(
+            #         model, val_dataloader, loss_function, device=device
+            #     )
+            #     val_loss_list.append(val_loss)
+            #     train_loss = train_loss / idx
+            #     writer.add_scalar("train loss", val_loss, global_step=total_updates)
+            #     writer.add_scalar(
+            #         "validation loss", val_loss_list[-1], global_step=total_updates
+            #     )
+            #     writer.add_scalar(
+            #         "learning rate",
+            #         optim_utils.get_lr(optimizer),
+            #         global_step=total_updates,
+            #     )
+            #     print(
+            #         f"\nEpoch ({i} {idx}) losses  (train, val) : ({train_loss}, {val_loss})"
+            #     )
 
-                if plot:
-                    fig = generate_plot(input_np, recon_np, ground_truth_np)
-                    writer.add_figure(f"epoch_{i}_{idx}_fig", fig)
+            #     if plot:
+            #         fig = generate_plot(input_np, recon_np, ground_truth_np)
+            #         writer.add_figure(f"epoch_{i}_{idx}_fig", fig)
 
         lr_scheduler.step()
 
@@ -300,9 +314,13 @@ def run_training(
         print(f"{inf_time:.2f}s, Backprop Time: {prop_time:.2f}s\n")
 
         # log to tensorboard
-        writer.add_scalar("train loss", train_loss_list[-1], global_step=i)
-        writer.add_scalar("validation loss", val_loss_list[-1], global_step=i)
-        writer.add_scalar("learning rate", optim_utils.get_lr(optimizer), global_step=i)
+        writer.add_scalar("train loss", train_loss_list[-1], global_step=total_updates)
+        writer.add_scalar(
+            "validation loss", val_loss_list[-1], global_step=total_updates
+        )
+        writer.add_scalar(
+            "learning rate", optim_utils.get_lr(optimizer), global_step=total_updates
+        )
         if not logged_graph:
             writer.add_graph(model, sample["input"].to(device), verbose=False)
             logged_graph = True

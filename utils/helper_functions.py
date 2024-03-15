@@ -144,6 +144,7 @@ def select_and_average_bands(
     data_cube,
     fc_range=(450, 810),
     spectral_ranges=[(400, 495), (495, 600), (600, 750)],
+    scaling=[1, 1, 1],
 ):
     wavs = np.linspace(fc_range[0], fc_range[1], data_cube.shape[-1])
 
@@ -156,7 +157,7 @@ def select_and_average_bands(
         else:
             averaged_band = np.zeros_like(data_cube[:, :, 0])
         averaged_bands.append(averaged_band)
-        print(np.max(averaged_band), np.min(averaged_band))
+    averaged_bands = [averaged_bands[i] * scaling[i] for i in range(3)]
 
     # Stack the averaged bands along the last dimension to form an RGB image
     rgb_image = np.stack(averaged_bands, axis=-1)[:, :, ::-1]
@@ -373,7 +374,10 @@ def plot_cube_interactive(
     )
     if use_false_color:
         projected_false_color = (
-            value_norm(stack_rgb_opt_30(data_cube, fc_range, scaling=fc_scaling)) * 255
+            value_norm(
+                select_and_average_bands(data_cube, fc_range, scaling=fc_scaling)
+            )
+            * 255
         ).astype(np.uint8)
         image_trace = go.Image(z=projected_false_color)
     else:

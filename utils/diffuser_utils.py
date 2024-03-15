@@ -512,6 +512,25 @@ def flip_channels(image):
     return image_color
 
 
+def pad_yx_to_multiple(x, multiple=32, ret_padding=False):
+    y_new = ((x.shape[-2] - 1) // multiple + 1) * multiple
+    x_new = ((x.shape[-1] - 1) // multiple + 1) * multiple
+
+    # If odd, this biases bottom & right padding to get the extra row/col.
+    y_pad_top = (y_new - x.shape[-2]) // 2
+    y_pad_bottom = y_new - x.shape[-2] - y_pad_top
+    x_pad_left = (x_new - x.shape[-1]) // 2
+    x_pad_right = x_new - x.shape[-1] - x_pad_left
+    padding = (x_pad_left, x_pad_right, y_pad_top, y_pad_bottom)
+
+    padded_x = F.pad(x, padding, mode="constant", value=0)
+
+    if ret_padding:
+        return padded_x, (x_pad_left, x_pad_right, y_pad_top, y_pad_bottom)
+
+    return padded_x
+
+
 def pad_zeros_torch(model, x):
     PADDING = (
         model.PAD_SIZE1 // 2,

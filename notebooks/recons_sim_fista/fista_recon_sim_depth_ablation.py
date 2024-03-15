@@ -1,6 +1,7 @@
 import sys, os, glob, tqdm, pathlib
 
 sys.path.insert(0, "../../")
+sys.path.append("/home/cfoley_waller/defocam/SpectralDefocusCam")
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
 import utils.helper_functions as helper
@@ -8,7 +9,7 @@ import train
 import numpy as np, torch
 import scipy.io as io
 
-DEVICE = "cuda:1"
+DEVICE = "cuda:0"
 
 TEST_DATA_PATH = "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/recons/model_ablation_test_set"
 
@@ -17,8 +18,8 @@ SAVE_PRED_PATH = "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/reco
 CONFIG_PATH = "/home/cfoley_waller/defocam/SpectralDefocusCam/notebooks/recons_sim_fista/fista_ablation_config_static.yml"
 
 # Set ablation parameters for each experiment
-BLURRY_ONLY = [False, False, False, False, True]
-STACK_DEPTH = [1, 2, 3, 5, 1]
+BLURRY_ONLY = [False, False]  # [False, False, False, False, True]
+STACK_DEPTH = [2, 3]  # [1, 2, 3, 5, 1]
 
 
 def initialize_fista_model(stack_depth, blurry):
@@ -46,6 +47,9 @@ def initialize_fista_model(stack_depth, blurry):
     config["forward_model_params"]["psf"]["stride"] = stride
     config["forward_model_params"]["psf"]["exposures"] = exposures
 
+    if blurry and stack_depth == 1:
+        config["forward_model_params"]["psf"]["norm"] = "two"  # Because magic!
+
     model = train.get_model(config=config, device=config["device"])
     model.eval()
 
@@ -62,24 +66,19 @@ def main():
         blurry = BLURRY_ONLY[i]
         fm, rm = initialize_fista_model(stack_depth, blurry)
 
-        for file in data_files:
+        for j, file in enumerate(data_files):
+            print(f"{i+1}/{len(STACK_DEPTH)} {j}/{len(data_files)}")
+            name = f"pred_fista_{stack_depth}_blurry-{blurry}_params-{rm.iters}-{rm.tv_lambda}-{rm.tv_lambdax}-{rm.tv_lambdaw}_{os.path.basename(file)[:-4]}.npy"
+            if os.path.exists(os.path.join(SAVE_PRED_PATH, name)):
+                print(
+                    f"Already reconstructed {os.path.basename(file)[:-4]}... Skipping."
+                )
+                continue
+
             sample = io.loadmat(file)
 
-            ############# Slicing Depends on stack depth of model ##########
-            if stack_depth == 1:
-                if blurry:
-                    x = sample["image"][-1:]  # 4
-                else:
-                    x = sample["image"][:1]  # 0
-            elif stack_depth == 2:
-                x = sample["image"][0::4]  # 0, 4
-            elif stack_depth == 3:
-                x = sample["image"][0::2]  # 0, 2, 4
-            elif stack_depth == 5:
-                x = sample["image"]  # 0, 1, 2, 3, 4
-
             ############# Fista requires 0-1 normalization of inputs to simulation model ##########
-            x = helper.value_norm(x)
+            x = helper.value_norm(sample["image"])
 
             ############# Prediction -- must save as numpy file (y,x,lambda) ##########
             sim = fm(torch.tensor(x)[None, None, ...].to(DEVICE))
@@ -87,7 +86,8 @@ def main():
             _ = rm(sim.squeeze(dim=(0, 2)))
             recon = rm.out_img
 
-            name = f"pred_fista_{stack_depth}_blurry-{blurry}_params-{rm.iters}-{rm.tv_lambda}-{rm.tv_lambdax}-{rm.tv_lambdaw}_{os.path.basename(file)[:-4]}.npy"
+            if not os.path.exists(SAVE_PRED_PATH):
+                os.makedirs(SAVE_PRED_PATH)
             with open(os.path.join(SAVE_PRED_PATH, name), "wb") as f:
                 np.save(f, recon)
 

@@ -1,10 +1,10 @@
 # example config for training
 
 # data paths
-checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
-psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-base_data_path: "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_L1psf_3meas"
-mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_L1_390-870_30chan_stride16_avg16.mat"
+checkpoints_dir: "/home/cfoley/defocuscamdata/models"
+psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
+base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_L1psf_3meas"
+mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_L1_390-870_30chan_stride16_avg16.mat"
 
 # model params
 device: 1
@@ -63,7 +63,7 @@ lr_scheduler:
 
 # restarting from checkpoint
 preload_weights: True
-checkpoint_dir: "/home/cfoley_waller/defocam/defocuscamdata/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_L1psf_3meas.yml/2024_03_11_19_11_21/saved_model_ep5_testloss_0.06401904826140348.pt"
+checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_L1psf_3meas.yml/2024_03_11_19_11_21/saved_model_ep5_testloss_0.06401904826140348.pt"
 offset: 6
 
 # other params

@@ -87,7 +87,6 @@ class Unet(nn.Module):
         self,
         psfs,
         mask,
-        batch_size,
         n_channel_in=1,
         n_channel_out=1,
         norm="batch",
@@ -146,9 +145,10 @@ class Unet(nn.Module):
         psf_conditions = []
         z_dims = [32, 16, 8, 4, 2]
 
+        psfs = pad_yx_to_multiple(psfs.to(torch.float32), multiple=32)
         for i in range(5):
             psf_conditions.append(
-                psfs[None, :, None, ...].repeat(1, 1, z_dims[i], 1, 1).to(torch.float32)
+                psfs[None, :, None, ...].repeat(1, 1, z_dims[i], 1, 1)
             )
             psfs = F.avg_pool2d(psfs, kernel_size=2, stride=2)
 
@@ -231,11 +231,7 @@ class Unet(nn.Module):
         v_hat = crop_forward(self, torch.fft.ifft2(Hconj * B_adj).real)
         return v_hat
 
-    def forward(self, x):
-        x = F.pad(
-            self.Hadj(x, self.psfs, self.mask), (0, 0, 0, 0, 1, 1), "constant", 0
-        ).to(torch.float32)
-
+    def fwd_pass(self, x):
         c0 = x
 
         c1 = self.conv1(
@@ -259,6 +255,7 @@ class Unet(nn.Module):
         x = self.down4(c4)
 
         x = self.conv5(torch.cat((x, self.psfs5.repeat(x.shape[0], 1, 1, 1, 1)), dim=1))
+
         x = self.up1(x)
         x = torch.cat([x, c4], 1)  # x[:,0:128]*x[:,128:256],
         x = self.conv6(x)
@@ -277,4 +274,21 @@ class Unet(nn.Module):
 
         if self.residual:
             x = torch.add(x, self.convres(c0))
-        return x[:, 0, ..., 1:-1, :, :]  # remove image dimension
+        return x[:, 0, ...]  # remove image dimension
+
+    def forward(self, x):
+        # spectral projection & deconvolution
+        x = self.Hadj(x, self.psfs, self.mask)
+
+        # pass through conditioned unet
+        x = F.pad(x, (0, 0, 0, 0, 1, 1), "constant", 0).to(torch.float32)
+        x, padding = pad_yx_to_multiple(x, multiple=32, ret_padding=True)
+        x = self.fwd_pass(x)
+        x = x[
+            ...,
+            1:-1,
+            padding[2] : x.shape[-2] - padding[3],
+            padding[0] : x.shape[-1] - padding[1],
+        ]
+
+        return x

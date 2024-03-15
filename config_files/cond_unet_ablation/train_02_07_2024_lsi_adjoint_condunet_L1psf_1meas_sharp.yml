@@ -1,10 +1,10 @@
 # example config for training
 
 # data paths
-checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
-psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-base_data_path: "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_L1psf_1meas_sharp"
-mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_L1_390-870_30chan_stride16_avg16.mat"
+checkpoints_dir: "/home/cfoley/defocuscamdata/models"
+psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
+base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_L1psf_1meas_sharp"
+mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_L1_390-870_30chan_stride16_avg16.mat"
 
 # model params
 device: 0

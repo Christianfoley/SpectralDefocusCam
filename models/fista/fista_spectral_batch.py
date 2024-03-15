@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 
 import models.fista.tv_approx_haar as tv_lib
-import utils.helper_functions as fc
+import utils.helper_functions as helper
 
 
 class fista_spectral(torch.nn.Module):
@@ -53,6 +53,7 @@ class fista_spectral(torch.nn.Module):
         self.tv_lambdax = params.get("tv_lambdax", 0.00005)  # TV tuning for wavelength
         self.lowrank_lambda = params.get("lowrank_lambda", 0.00005)  # Low rank tuning
         self.break_diverge_early = False  # Must be manually set
+        self.learned_recon = None
 
         # Number of iterations of FISTA
         self.iters = params.get("iters", 500)
@@ -182,15 +183,25 @@ class fista_spectral(torch.nn.Module):
 
         return vup, tup, xup, self.loss(xup, error)
 
+    def init_learned_recon(self):
+        learned_recon = helper.value_norm(np.load(self.learned_recon))
+        xk = self.pad(torch.tensor(np.copy(learned_recon))).to(self.device) / 100
+        vk = self.pad(torch.tensor(np.copy(learned_recon))).to(self.device) / 100
+        return xk, vk
+
     # Run FISTA
     def run(self, inputs):
         # Initialize variables to zero
-        xk = torch.zeros((self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)).to(
-            self.device
-        )
-        vk = torch.zeros((self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)).to(
-            self.device
-        )
+        if self.learned_recon is not None:
+            xk, vk = self.init_learned_recon()
+        else:
+            xk = torch.zeros(
+                (self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)
+            ).to(self.device)
+            vk = torch.zeros(
+                (self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)
+            ).to(self.device)
+
         tk = torch.tensor(1.0)
 
         llist = []
@@ -209,7 +220,9 @@ class fista_spectral(torch.nn.Module):
                 print("iteration: ", i, " loss: ", l)
                 out_img = self.crop(xk).detach().cpu().numpy()
                 if self.plot:
-                    fc_img = fc.stack_rgb_opt_30(out_img, fc_range=self.fc_range)
+                    fc_img = helper.select_and_average_bands(
+                        out_img, fc_range=self.fc_range
+                    )
 
                     plt.figure(figsize=(10, 3), dpi=120)
                     plt.subplot(1, 2, 1), plt.imshow(fc_img / np.max(fc_img))

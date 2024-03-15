@@ -103,7 +103,7 @@ def main(config):
     # run preprocessing from raw data
     source_data_path = config.get(
         "source_data_path",
-        "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/sample_data/",
+        "/home/cfoley/defocuscamdata/sample_data/",
     )
 
     run_preprocessing(
