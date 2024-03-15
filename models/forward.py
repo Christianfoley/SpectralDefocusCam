@@ -175,6 +175,13 @@ class ForwardModel(torch.nn.Module):
         """
         if self.operations["sim_blur"]:
             self.psfs = self.simulate_lsi_psf().to(self.device).to(torch.float32)
+
+        elif self.operations["load_npy_psfs"]:
+                self.psfs = psf_utils.load_psf_npy(self.psf_dir, 
+                                              self.psf.get("norm", None))
+                
+                self.psfs = torch.tensor(self.psfs, device=self.device)
+                
         elif self.psfs is None:
             if self.psf["lri"]:
                 psfs = psf_utils.load_lri_psfs(
