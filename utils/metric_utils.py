@@ -44,19 +44,16 @@ def get_mean_lpips_score(img1, img2, net="alex"):
 
 
 def get_mean_psnr_score(img1, img2):
-    slice_scores = []
-    for i in range(img1.shape[-3]):
-        score = metrics.peak_signal_noise_ratio(img1[i], img2[i], data_range=1)
-        slice_scores.append(score)
-    return np.mean(np.array(slice_scores))
+    mse = get_l2_score(img1, img2)
+    maxval = max(np.max(img1), np.max(img2))
+    psnr = 20 * np.log10(1 / np.sqrt(mse))
+    return psnr
 
 
 def get_mean_ssim_score(img1, img2):
-    slice_scores = []
-    for i in range(img1.shape[-3]):
-        score = metrics.structural_similarity(img1[i], img2[i], data_range=1)
-        slice_scores.append(score)
-    return np.mean(np.array(slice_scores))
+    data_range = max(np.max(img1) - np.min(img1), np.max(img2) - np.min(img2))
+    score = metrics.structural_similarity(img1, img2, data_range=data_range)
+    return score
 
 
 # ----------- evaluation procedure ------------#

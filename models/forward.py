@@ -92,9 +92,11 @@ class ForwardModel(torch.nn.Module):
         self.mask = mask.to(self.device).to(torch.float32).unsqueeze(0)
 
         # initialize mask noise param defaults
-        self.noise_intensity = self.noise_params.get("intensity", 0.05)
-        self.noise_stopband = self.noise_params.get("stopband_only", True)
-        self.noise_type = self.noise_params.get("type", "gaussian")
+        self.mask_noise_intensity = self.noise_params.get("intensity", 0.05)
+        self.mask_noise_stopband = self.noise_params.get("stopband_only", True)
+        self.mask_noise_type = self.noise_params.get("type", "gaussian")
+
+        self.shot_noise_intensity = self.noise_params.get("intensity", 0.05)
 
         # determine forward and adjoint methods
         self.fwd = self.Hfor
@@ -150,21 +152,45 @@ class ForwardModel(torch.nn.Module):
         torch.Tensor
             noise-abberated mask (n, y, x)
         """
-        if not isinstance(self.noise_intensity, float):
-            intensity = np.random.uniform(*self.noise_intensity)
+        intensity = self.mask_noise_intensity
+        if not isinstance(self.mask_noise_intensity, float):
+            intensity = np.random.uniform(*self.mask_noise_intensity)
 
         noise = torch.abs(torch.randn(*mask.shape)) * intensity
-        if self.noise_type == "DC":
+        if self.mask_noise_type == "DC":
             noise = torch.ones_like(noise) * intensity
         noise = noise.to(mask.device)
 
-        if not self.noise_stopband:
+        if not self.mask_noise_stopband:
             mask = torch.where(mask < intensity, mask, mask + noise)
         else:
             mask = torch.where(mask > intensity, mask, mask + noise)
 
         del noise
         return mask
+
+    def sim_shot_noise(self, b):
+        """
+        Simulates shot noise from a gaussian normal distribution, with an intensity
+        varying randomly within the range selected.
+        Parameters
+        ----------
+        b : torch.Tensor
+            Input measurement (b, n, 1, y, x)
+        self.intensity : tuple(low,high)
+            intensity range for the noise
+
+        Returns
+        -------
+        torch.Tensor
+            noised measurement (b, n, 1, y, x)
+        """
+        intensity = self.mask_noise_intensity
+        if not isinstance(self.shot_noise_intensity, float):
+            intensity = np.random.uniform(*self.shot_noise_intensity)
+
+        noise = torch.randn_like(b) * intensity
+        return b + noise.to(self.device)
 
     def init_psfs(self):
         """
@@ -176,12 +202,13 @@ class ForwardModel(torch.nn.Module):
         if self.operations["sim_blur"]:
             self.psfs = self.simulate_lsi_psf().to(self.device).to(torch.float32)
 
-        elif self.operations["load_npy_psfs"]:
-                self.psfs = psf_utils.load_psf_npy(self.psf_dir, 
-                                              self.psf.get("norm", None))
-                
-                self.psfs = torch.tensor(self.psfs, device=self.device)
-                
+        elif self.operations.get("load_npy_psfs", False):
+            self.psfs = psf_utils.load_psf_npy(self.psf_dir, self.psf.get("norm", None))
+            self.psfs = torch.tensor(
+                psf_utils.center_pad_to_shape(self.psfs, (self.DIMS0, self.DIMS1)),
+                device=self.device,
+            )
+
         elif self.psfs is None:
             if self.psf["lri"]:
                 psfs = psf_utils.load_lri_psfs(
@@ -352,6 +379,9 @@ class ForwardModel(torch.nn.Module):
         else:
             self.b = v
 
+        if self.operations.get("shot_noise", False):
+            self.b = self.sim_shot_noise(self.b)
+
         if self.operations["adjoint"]:
             if self.operations.get("adj_mask_noise", False):
                 self.b = self.adj(self.b, self.psfs, self.sim_mask_noise(self.mask))
@@ -382,6 +412,10 @@ def build_data_pairs(data_path, model, batchsize=1):
         size for batching, by default 1
     """
     data_files = glob.glob(os.path.join(data_path, "*.mat"))
+    if len(data_files) == 0:
+        print(f"No preprocessed patches at {os.path.basename(data_path)}... Skipping.")
+        return
+
     model_params = {
         "stack_depth": model.num_ims,
         "psf": model.psf,

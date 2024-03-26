@@ -94,6 +94,7 @@ class Unet(nn.Module):
         down="conv",
         up="tconv",
         activation="selu",
+        condition_first_last_only=False,
     ):
         super(Unet, self).__init__()
         self.residual = residual
@@ -140,12 +141,15 @@ class Unet(nn.Module):
             self.up4.bias.data = 0.01 * self.up4.bias.data + 0
 
         # ------------ Condition each layer on PSFS ------------#
-        self.depth = psfs.shape[0]
         self.psfs = psfs.to(torch.float32)
         psf_conditions = []
         z_dims = [32, 16, 8, 4, 2]
 
         psfs = pad_yx_to_multiple(psfs.to(torch.float32), multiple=32)
+        if condition_first_last_only:
+            psfs = psfs[0 :: psfs.shape[0] - 1]
+        self.depth = psfs.shape[0]
+
         for i in range(5):
             psf_conditions.append(
                 psfs[None, :, None, ...].repeat(1, 1, z_dims[i], 1, 1)

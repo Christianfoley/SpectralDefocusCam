@@ -1329,6 +1329,6 @@ def load_psf_npy(psf_dir, norm = None):
     if norm:
         fn = np.sum if norm == "one" else np.linalg.norm
         psfs = [psf / fn(psf) for psf in psfs]
-
+    
     return np.stack(psfs, 0)
 

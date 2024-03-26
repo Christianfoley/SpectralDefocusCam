@@ -101,6 +101,7 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
             norm=rm_params.get("norm", "batch"),
             residual=rm_params.get("residual", False),
             activation=rm_params.get("activation", "selu"),
+            condition_first_last_only=rm_params.get("condition_first_last", False),
         )
     elif rm_params["model_name"] == "r2attunet":
         recon_model = R2attunet3d.R2AttUnet(
