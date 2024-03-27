@@ -103,6 +103,17 @@ class ForwardModel(torch.nn.Module):
             self.fwd = self.Hfor_varying
             self.adj = self.Hadj_varying
 
+        # set up for cassi if the flag is set
+        self.cassi_flag = params.get("cassi", False)
+        if self.cassi_flag == True:
+            # set torch seed
+            torch.manual_seed(0)
+            self.cassi_mask = torch.bernoulli(torch.ones_like(self.mask) * 0.5).to(self.device)
+            self.num_spectral_channels = self.mask.shape[-3]
+            self.fwd = self.Hfor_cassi
+            self.adj = self.Hadj_cassi
+
+
     def simulate_lsi_psf(self):
         """
         Simulates gaussian-distributed PSFS for an LSI system. Initial psf variance
@@ -321,6 +332,52 @@ class ForwardModel(torch.nn.Module):
             LRI system adjoint (b, n, c, y, x)
         """
         v_hat = batch_ring_convolve(b * mask, torch.conj(h), self.device).real
+        return v_hat
+    
+    def Hfor_cassi(self, v, null1, null2):
+        """
+       CASSI forward method
+
+        Parameters
+        ----------
+        v : torch.Tensor
+            ground truth hyperspectral batch (b, 1, c, y, x)
+
+        Returns
+        -------
+        torch.Tensor
+            simulated measurements (b, n, 1, y, x)
+        """
+        n_spectral_channels = v.shape[2]
+        masked_img = v*self.cassi_mask
+        padded_masked_img = torch.nn.functional.pad(masked_img, (n_spectral_channels-1,n_spectral_channels-1,0,0,0,0))
+        for ii in range(0,n_spectral_channels):
+            padded_masked_img[:,:,ii] = torch.roll(padded_masked_img[:,:,ii], -ii, dims=-1)
+        y = torch.sum(padded_masked_img,2,keepdim=True)
+        y = y[:,:,:,:,n_spectral_channels-1:-(n_spectral_channels-1)]
+        return y
+    
+    def Hadj_cassi(self, b, null1, null2):
+        """
+        CASSI adjoint method
+
+        Parameters
+        ----------
+        b : torch.Tensor
+            simulated (or not) measurement (b, n, 1, y, x)
+
+        Returns
+        -------
+        torch.Tensor
+            CASSI system adjoint (b, n, c, y, x)
+        """
+        n_spectral_channels = self.num_spectral_channels
+        y = torch.nn.functional.pad(b, (n_spectral_channels-1,n_spectral_channels-1,0,0,0,0))
+        y = y.repeat(1,1,n_spectral_channels,1,1)
+        for ii in range(0,n_spectral_channels):
+            y[:,:,ii] = torch.roll(y[:,:,ii], ii, dims=-1)
+        y = y[:,:,:,:,n_spectral_channels-1:-(n_spectral_channels-1)]
+        v_hat = y*self.cassi_mask
         return v_hat
 
     def forward(self, v):
