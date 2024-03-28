@@ -508,7 +508,7 @@ def plot_psf_rings(psfs, coords, blur_levels, dim, psf_dim):
         size of output plot (square)
     """
 
-    fig, ax = plt.subplots(1, blur_levels, figsize=(blur_levels * 6, 5), dpi=100)
+    fig, ax = plt.subplots(1, blur_levels, figsize=(blur_levels * 12, 10), dpi=300)
     for i in range(blur_levels):
         rotated_psfs = view_patched_psf_rings(
             psfs[i],
@@ -517,7 +517,7 @@ def plot_psf_rings(psfs, coords, blur_levels, dim, psf_dim):
             psf_dim=psf_dim,
         )
 
-        img = ax[i].imshow(rotated_psfs, cmap="inferno", interpolation="none")
+        img = ax[i].imshow(rotated_psfs, cmap="gray", interpolation="none")
         fig.colorbar(img, ax=ax[i], fraction=0.046, pad=0.04)
         ax[i].set_title(f"Focus level: {i}")
         ax[i].axis("off")
@@ -738,11 +738,11 @@ def plot_subdivisions(blur_levels, subdivisions, radii, superimposed_psfs):
     superimposed_psfs : np.ndarray
         3d numpy array of psfs, superimposed with each position (n_blur, y, x)
     """
-    fig, ax = plt.subplots(2, blur_levels, figsize=(6 * blur_levels, 10))
+    fig, ax = plt.subplots(2, blur_levels, figsize=(12 * blur_levels, 20), dpi=200)
     fig.set_dpi(70)
 
     for i in range(blur_levels):
-        img = ax[0][i].imshow(superimposed_psfs[i], cmap="inferno")
+        img = ax[0][i].imshow(superimposed_psfs[i], cmap="grey")
         fig.colorbar(img, ax=ax[0][i], fraction=0.046, pad=0.04)
         ax[0][i].set_title(f"Superimposed Measurements: blur {i}")
         ax[0][i].axis("off")
@@ -1316,7 +1316,8 @@ def load_lri_psfs(psf_dir, num_ims):
 
     return np.stack(psf_data, 0)
 
-def load_psf_npy(psf_dir, norm = None):
+
+def load_psf_npy(psf_dir, norm=None):
     files = os.listdir(psf_dir)
     # sort by number in filename
     files = sorted(files, key=lambda x: int(x.split(".")[0].split("_")[-1]))
@@ -1325,10 +1326,9 @@ def load_psf_npy(psf_dir, norm = None):
         if file.endswith(".npy"):
             psf = np.load(os.path.join(psf_dir, file))
             psfs.append(psf)
-    
+
     if norm:
         fn = np.sum if norm == "one" else np.linalg.norm
         psfs = [psf / fn(psf) for psf in psfs]
-    
-    return np.stack(psfs, 0)
 
+    return np.stack(psfs, 0)

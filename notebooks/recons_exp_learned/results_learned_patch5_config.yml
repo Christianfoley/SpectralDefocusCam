@@ -39,7 +39,7 @@ recon_model_params:
   norm: "local_response"
   
 # training params
-epochs: 15
+epochs: 25
 batch_size: 4
 grad_accumulate: 2
 patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
@@ -54,17 +54,17 @@ loss_function:
 optimizer: 
   name: "adam" # adam, sgd, adagrad, rmsprop
   params: # kwargs
-    lr: 0.0002
+    lr: 0.00015
     weight_decay: 0.001
 lr_scheduler: 
   name: "exponential" # warm_cosine_anneal, exponential, plateau
   params: 
-    gamma: 0.98
+    gamma: 0.92
 
 # restarting from checkpoint
-preload_weights: False
-checkpoint_dir: ""
-offset: 0
+preload_weights: True
+checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_results_learned_patch5_config.yml/2024_03_15_07_49_39/saved_model_ep14_testloss_0.09771179727647665.pt"
+offset: 15
 
 # other params
 no_graph: True

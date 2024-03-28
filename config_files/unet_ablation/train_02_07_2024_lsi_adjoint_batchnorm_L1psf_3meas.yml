@@ -1,14 +1,15 @@
 # example config for training
 
 # data paths
-checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
-psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-base_data_path: "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_L1psf_3meas"
-mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_11_10_2023_2_preprocessed/calibration_matrix_450-810_30chan_stride12_avg12.mat"
+checkpoints_dir: "/home/cfoley/defocuscamdata/models"
+psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
+base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_L1psf_3meas"
+mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_L1_390-870_30chan_stride16_avg16.mat"
 
 # model params
-device: 3
+device: 1
 data_precomputed: True
+passthrough: False
 forward_model_params:
   stack_depth: 3
   psf:
@@ -23,18 +24,24 @@ forward_model_params:
     norm: one # applies normalization to each psf ("one": L1, "two": L2)
   operations:
     sim_blur: False
-    sim_meas: True
+    sim_meas: False
     adjoint: True
     spectral_pad: True
-    roll: True
+    adj_mask_noise: False
+    fwd_mask_noise: True
+  mask_noise: # augment mask with noise
+    intensity: [0, 0.03]
+    stopband_only: true
+    type: gaussian
   
 recon_model_params:
   model_name: "unet" # "r2attunet"
   norm: "local_response"
   
 # training params
-epochs: 500
-batch_size: 3
+epochs: 150
+batch_size: 2
+grad_accumulate: 4
 patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
 patch_crop: [768, 768] # actual size on camera
 image_center: [1000, 2000] # center of both the image and mask crops
@@ -47,12 +54,12 @@ loss_function:
 optimizer: 
   name: "adam" # adam, sgd, adagrad, rmsprop
   params: # kwargs
-    lr: 0.0002
+    lr: 0.00015
     weight_decay: 0.001
 lr_scheduler: 
   name: "exponential" # warm_cosine_anneal, exponential, plateau
   params: 
-    gamma: 0.98
+    gamma: 0.94
 
 # restarting from checkpoint
 preload_weights: False

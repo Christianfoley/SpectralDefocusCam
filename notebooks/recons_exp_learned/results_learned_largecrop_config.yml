@@ -6,7 +6,7 @@
 # data paths
 checkpoints_dir: "/home/cfoley/defocuscamdata/models"
 psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_largecrop_lsi_02_07_L1psf_2meas"
+base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_largecrop_shotnoise_lsi_02_07_L1psf_2meas"
 mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 # model params
@@ -32,19 +32,22 @@ forward_model_params:
     spectral_pad: False
     adj_mask_noise: False
     fwd_mask_noise: True
+    shot_noise: True
   mask_noise: # augment mask with noise
-    intensity: [0, 0.03]
+    intensity: [0, 0.01]
     stopband_only: true
     type: gaussian
-  
+  shot_noise:
+    intensity: [0, 0.01]
+
 recon_model_params:
   model_name: "unet_conditioned"
   norm: "local_response"
   
 # training params
-epochs: 50
-batch_size: 1
-grad_accumulate: 4
+epochs: 100
+batch_size: 2
+grad_accumulate: 2
 patch_size: [420, 620] # inference & training size (NOTE: downsampling reduces filter precision)
 patch_crop: [1260, 1860] # actual size on camera
 image_center: [1200, 1970] # center of both the image and mask crops
@@ -57,12 +60,12 @@ loss_function:
 optimizer: 
   name: "adam" # adam, sgd, adagrad, rmsprop
   params: # kwargs
-    lr: 0.0002
+    lr: 0.0001
     weight_decay: 0.001
 lr_scheduler: 
   name: "exponential" # warm_cosine_anneal, exponential, plateau
   params: 
-    gamma: 0.98
+    gamma: 0.94
 
 # restarting from checkpoint
 preload_weights: False

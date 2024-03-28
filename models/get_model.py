@@ -84,6 +84,7 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
             norm=rm_params.get("norm", "batch"),
             residual=rm_params.get("residual", False),
             activation=rm_params.get("activation", "selu"),
+            adjoint=(not fm_params["operations"]["adjoint"])
         )
     elif rm_params["model_name"] == "unet2d":
         recon_model = Unet2d.Unet(

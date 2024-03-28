@@ -39,7 +39,7 @@ recon_model_params:
   norm: "local_response"
   
 # training params
-epochs: 15
+epochs: 25
 batch_size: 4
 grad_accumulate: 2
 patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
@@ -59,7 +59,7 @@ optimizer:
 lr_scheduler: 
   name: "exponential" # warm_cosine_anneal, exponential, plateau
   params: 
-    gamma: 0.98
+    gamma: 0.94
 
 # restarting from checkpoint
 preload_weights: False

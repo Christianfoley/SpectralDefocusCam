@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from utils.diffuser_utils import *
 
 class ConvBlock(nn.Module):
     def __init__(
@@ -91,6 +91,7 @@ class Unet(nn.Module):
         down="conv",
         up="tconv",
         activation="selu",
+        adjoint=False,
     ):
         super(Unet, self).__init__()
         self.residual = residual
@@ -135,6 +136,7 @@ class Unet(nn.Module):
             self.up2.bias.data = 0.01 * self.up2.bias.data + 0
             self.up3.bias.data = 0.01 * self.up3.bias.data + 0
             self.up4.bias.data = 0.01 * self.up4.bias.data + 0
+
         self.conv1 = ConvBlock(
             n_channel_in, 32, norm=norm, residual=residual, activation=activation
         )
