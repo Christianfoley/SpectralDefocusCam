@@ -23,7 +23,7 @@ def main():
     for config_path in configs:
         wandb_run = wandb.init(
             project="SpectralDefocusCam",
-            name="simulation_methods_comparison_table",
+            name=f"simulation_methods_comparison_table_{pathlib.Path(config_path).stem}",
             config=helper.read_config(config_path),
         )
 
