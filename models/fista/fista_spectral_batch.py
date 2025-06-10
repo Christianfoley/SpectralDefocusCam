@@ -53,6 +53,9 @@ class fista_spectral(torch.nn.Module):
         self.tv_lambdax = params.get("tv_lambdax", 0.00005)  # TV tuning for wavelength
         self.lowrank_lambda = params.get("lowrank_lambda", 0.00005)  # Low rank tuning
         self.break_diverge_early = False  # Must be manually set
+        self.convergence_tolerance = params.get(
+            "convergence_tolerance", 10000
+        )  # number of iters with no loss decrease before stopping
         self.learned_recon = None
 
         # Number of iterations of FISTA
@@ -205,12 +208,22 @@ class fista_spectral(torch.nn.Module):
         tk = torch.tensor(1.0)
 
         llist = []
+        min_loss = np.inf
+        min_loss_iter = 0
 
         # Start FISTA loop
         for i in range(0, self.iters):
             vk, tk, xk, l = self.fista_update(vk, tk, xk, inputs)
 
+            # Track the loss to see if we're converged
             llist.append(l.item())
+            if l.item() < min_loss:
+                min_loss = l.item()
+                min_loss_iter = i
+            if i > min_loss_iter + self.convergence_tolerance:
+                print(f"Converged with best loss {min(llist):.4f}")
+                break
+
             if self.break_diverge_early and l.item() > llist[0] * 100:
                 print(f"Diverged with loss {l.item():.4f}, stopping...")
                 break
@@ -219,6 +232,8 @@ class fista_spectral(torch.nn.Module):
             if self.show_recon_progress == True and i % self.print_every == 0:
                 print("iteration: ", i, " loss: ", l)
                 out_img = self.crop(xk).detach().cpu().numpy()
+                self.out_img = out_img
+
                 if self.plot:
                     fc_img = helper.select_and_average_bands(
                         out_img, fc_range=self.fc_range
@@ -230,13 +245,16 @@ class fista_spectral(torch.nn.Module):
                     plt.subplot(1, 2, 2), plt.plot(llist)
                     plt.title("Loss")
                     plt.show()
-                self.out_img = out_img
+
         xout = self.crop(xk)
         self.llist = llist
         return xout, llist
 
     def forward(self, input):
-        assert len(input.shape) in {4, 3}, "Only accepts meas stack, or batch of stacks"
+        assert len(input.shape) in {
+            4,
+            3,
+        }, f"Only accepts meas stack, or batch of stacks. Got {input.shape}"
 
         if len(input.shape) == 4:
             output = torch.stack(

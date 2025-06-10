@@ -172,14 +172,14 @@ class SpectralWrapper(Dataset):
                 test_idx = int(len(dataset))
 
                 if part == "train":
-                    img_dirs_frac = dataset.img_dirs[0:train_idx]
+                    img_paths_frac = dataset.img_paths[0:train_idx]
                 elif part == "val":
-                    img_dirs_frac = dataset.img_dirs[train_idx:val_idx]
+                    img_paths_frac = dataset.img_paths[train_idx:val_idx]
                 elif part == "test":
-                    img_dirs_frac = dataset.img_dirs[val_idx:test_idx]
+                    img_paths_frac = dataset.img_paths[val_idx:test_idx]
 
                 dataset_frac = SpectralDataset(
-                    img_dirs_frac, dataset.transform, dataset.tag
+                    img_paths_frac, dataset.transform, dataset.tag
                 )
                 partition_datasets.append(dataset_frac)
 
@@ -200,35 +200,38 @@ class SpectralDataset(Dataset):
     key.
     """
 
-    def __init__(self, img_dir_list, transform=None, tag=None):
-        self.img_dirs = img_dir_list
+    def __init__(self, img_paths, transform=None, tag=None):
+        self.img_paths = img_paths
         self.transform = transform
-        self.tag = tag
-        # possible tags: ['ref','cspaces','header', 'wc', 'pcc', 'pavia']
+        self.tag = (
+            tag  # possible tags: ['ref','cspaces','header', 'wc', 'pcc', 'pavia']
+        )
 
         self.readtime = 0
 
     def __len__(self):
-        return len(self.img_dirs)
+        return len(self.img_paths)
 
     # if transform uses subImageRand, you can call the same item over and over
     def __getitem__(self, idx):
+        path = self.img_paths[idx]
+
         if self.tag == None:
             start = time.time()
-            image = scipy.io.loadmat(self.img_dirs[idx])
+            image = scipy.io.loadmat(path)
             self.readtime += time.time() - start
         elif type(self.tag) == list:
             start = time.time()
-            dict = scipy.io.loadmat(self.img_dirs[idx])
+            dict = scipy.io.loadmat(path)
             self.readtime += time.time() - start
             for subtag in self.tag:
                 if subtag in dict:
                     image = dict[subtag]
                     break
         else:
-            image = scipy.io.loadmat(self.img_dirs[idx])[self.tag]
+            image = scipy.io.loadmat(path)[self.tag]
 
-        sample = {"image": image}
+        sample = {"image": image, "path": path}
         if self.transform:
             sample = self.transform(sample)
         return sample
@@ -245,6 +248,7 @@ class Resize(object):  # uses cv2.resize with a default size of 256,256
 
 class Normalize(object):
     def __call__(self, sample):
+        sample["image"] = sample["image"] - np.min(sample["image"])
         sample["image"] = sample["image"] / np.max(sample["image"])
         return sample
 
@@ -287,17 +291,20 @@ class toTensor(object):
     of the sample image
     """
 
+    def __init__(self, yxc_to_cyx=True):
+        self.yxc_to_cyx = yxc_to_cyx
+
     def __call__(self, sample, device=None):
         if device:
             sample["image"] = torch.tensor(
-                sample["image"].copy().transpose(2, 0, 1),
+                sample["image"].copy(),
                 dtype=torch.float32,
                 device=device,
             )
         else:
-            sample["image"] = torch.tensor(
-                sample["image"].copy().transpose(2, 0, 1), dtype=torch.float32
-            )
+            sample["image"] = torch.tensor(sample["image"].copy(), dtype=torch.float32)
+        if self.yxc_to_cyx:
+            sample["image"] = sample["image"].transpose(2, 0, 1)
         return sample
 
 

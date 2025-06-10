@@ -1047,7 +1047,7 @@ def get_lsi_psfs(
 
     ################ Read in psfs #################
     psfs = read_psfs(psf_dir, verbose=verbose)
-    if blurstride < 0:
+    if blurstride < 0: # only defocused psfs
         psfs = psfs[-1:]
     else:
         psfs = psfs[start_idx : blur_levels * blurstride : blurstride]

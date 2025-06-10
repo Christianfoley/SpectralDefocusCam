@@ -50,9 +50,6 @@ class ForwardModel(torch.nn.Module):
         # what psfs to use/simulate
         self.psf = params["psf"]
 
-        # parameters for adding noise to the mask
-        self.noise_params = params.get("mask_noise", {})
-
         ## Initialize constants
         self.DIMS0 = mask.shape[0]  # Image Dimensions
         self.DIMS1 = mask.shape[1]  # Image Dimensions
@@ -91,12 +88,16 @@ class ForwardModel(torch.nn.Module):
             mask = torch.tensor(mask)
         self.mask = mask.to(self.device).to(torch.float32).unsqueeze(0)
 
-        # initialize mask noise param defaults
-        self.mask_noise_intensity = self.noise_params.get("intensity", 0.05)
-        self.mask_noise_stopband = self.noise_params.get("stopband_only", True)
-        self.mask_noise_type = self.noise_params.get("type", "gaussian")
-
-        self.shot_noise_intensity = self.noise_params.get("intensity", 0.05)
+        # initialize calibration noise (mask read noise) parameter defaults
+        self.mask_noise_params = params.get("mask_noise", {})
+        self.mask_noise_intensity = self.mask_noise_params.get("intensity", 0.05)
+        self.mask_noise_stopband = self.mask_noise_params.get("stopband_only", True)
+        self.mask_noise_type = self.mask_noise_params.get("type", "gaussian")
+        
+        # initialize sample noise (photon & read noise) parameters
+        self.sample_noise_params = params.get("sample_noise", {})
+        self.read_noise_intensity = self.sample_noise_params.get("intensity", 0.001)
+        self.shot_noise_photon_count = self.sample_noise_params.get("photon_count", 10e4)
 
         # determine forward and adjoint methods
         self.fwd = self.Hfor
@@ -169,10 +170,11 @@ class ForwardModel(torch.nn.Module):
         del noise
         return mask
 
-    def sim_shot_noise(self, b):
+    def sim_read_noise(self, b):
         """
-        Simulates shot noise from a gaussian normal distribution, with an intensity
-        varying randomly within the range selected.
+        Simulates read noise sampling from a gaussian normal distribution, with an 
+        intensity varying randomly within the range selected.
+
         Parameters
         ----------
         b : torch.Tensor
@@ -185,12 +187,40 @@ class ForwardModel(torch.nn.Module):
         torch.Tensor
             noised measurement (b, n, 1, y, x)
         """
-        intensity = self.mask_noise_intensity
-        if not isinstance(self.shot_noise_intensity, float):
-            intensity = np.random.uniform(*self.shot_noise_intensity)
+        intensity = self.read_noise_intensity
 
-        noise = torch.randn_like(b) * intensity
-        return b + noise.to(self.device)
+        # for synthetic data generation, intensity is sampled randomly from a 
+        # specified range i.e. as an augmentation
+        if not isinstance(self.read_noise_intensity, float):
+            intensity = np.random.uniform(*self.read_noise_intensity)
+
+        noise = torch.randn_like(b) * intensity * b.max()
+        return torch.clip(b, min=0) + noise.to(self.device)
+    
+    def sim_shot_noise(self, b):
+        """
+        Simulates shot noise by sampling from a Poisson distribution with a mean
+        equal to the input measurement. The intensity of the noise is determined
+        by the photon count specified in the model parameters.
+
+        Parameters
+        ----------
+        b : torch.Tensor
+            Input measurement (b, n, 1, y, x)
+
+        Returns
+        -------
+        torch.Tensor
+            noised measurement (b, n, 1, y, x)
+        """
+        photon_count = self.shot_noise_photon_count
+
+        # for synthetic data generation, photon count is sampled randomly from a 
+        # specified range i.e. as an augmentation
+        if not isinstance(self.shot_noise_photon_count, int | float):
+            photon_count = np.random.uniform(*self.shot_noise_photon_count)
+
+        return torch.poisson(torch.clip(b, min=0) * photon_count) / photon_count
 
     def init_psfs(self):
         """
@@ -381,6 +411,8 @@ class ForwardModel(torch.nn.Module):
 
         if self.operations.get("shot_noise", False):
             self.b = self.sim_shot_noise(self.b)
+        if self.operations.get("read_noise", False):
+            self.b = self.sim_read_noise(self.b)
 
         if self.operations["adjoint"]:
             if self.operations.get("adj_mask_noise", False):

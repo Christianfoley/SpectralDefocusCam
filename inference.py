@@ -49,7 +49,7 @@ def get_model_pretrained(weights, train_config, device):
 
     # reconstruction model
     recon_model = Unet3d.Unet(n_channel_in=train_config["stack_depth"], n_channel_out=1)
-    model = ensemble.MyEnsemble(forward_model.to(device), recon_model.to(device))
+    model = ensemble.SSLSimulationModel(forward_model.to(device), recon_model.to(device))
 
     model.load_state_dict(torch.load(weights, map_location=torch.device(device)))
     model.eval()

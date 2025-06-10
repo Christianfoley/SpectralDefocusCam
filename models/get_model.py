@@ -119,7 +119,7 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
         )
 
     # build ensemble and load any pretrained weights
-    full_model = ensemble.MyEnsemble(forward_model, recon_model)
+    full_model = ensemble.SSLSimulationModel(forward_model, recon_model)
 
     if config.get("preload_weights", False):
         full_model.load_state_dict(
