@@ -174,7 +174,6 @@ def reconstruct_samples(
                 print(f"Error processing sample {i}: {e}")
                 results.append([None] * len(output_paths))
                 continue
-        break
     return results
 
 
