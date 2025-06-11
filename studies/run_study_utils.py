@@ -12,7 +12,7 @@ import scipy.io as io
 import multiprocessing as mp
 import tqdm
 import wandb
-from typing import Optional
+from typing import Any, Optional
 from pprint import pprint
 
 
@@ -34,7 +34,9 @@ torch.manual_seed(6.626)
 METRICS = ["mse", "cossim", "psnr", "ssim"]
 
 
-def run_reconstruction_grid(config_path: str, overwrite_existing=False) -> list[str]:
+def run_reconstruction_grid(
+    config_path: str, overwrite_existing=False, override_params={}
+) -> list[str]:
     """
     Given a complete configuration file, set up and run an experiment of reconstructions according to
     the model and data specified in the config, saving and returning paths to the saved reconstructions
@@ -46,6 +48,10 @@ def run_reconstruction_grid(config_path: str, overwrite_existing=False) -> list[
     overwrite_existing : bool, optional
         If true, will rerun reconstructions if they are found in the output,
         otherwise it will skip
+    override_params : dict, optional
+        Parameters in the config at `config_path` to override, and their override values.
+        Parameters, if nested, should be separated by `.` for each nesting level,
+        e.g. {"param.subparam.subsubparam": "override_value"}
 
     Returns:
     --------
@@ -54,6 +60,7 @@ def run_reconstruction_grid(config_path: str, overwrite_existing=False) -> list[
     """
     # do a couple sanity checks on the completeness of the config
     config = helper.read_config(config_path)
+    config = _override_config_parameters(config, override_params)
     assert os.path.exists(config.get("base_data_path")), "Must specify data path"
     assert not config.get("passthrough"), "Forward model must not be passthrough"
     assert config.get("save_recon_path"), "Must provide save path"
@@ -178,7 +185,7 @@ def reconstruct_samples(
 
 
 def compute_metrics(
-    config_path: str, overwrite_existing: bool = True, mp_workers=4
+    config_path: str, overwrite_existing: bool = True, override_params={}, mp_workers=4
 ) -> Optional[str]:
     """
     Given the path to a config file for which an experiment has already been run, compute
@@ -202,6 +209,10 @@ def compute_metrics(
     overwrite_existing : bool, optional
         If true, will rerun reconstructions if they are found in the output,
         otherwise it will skip
+    override_params : dict, optional
+        Parameters in the config at `config_path` to override, and their override values.
+        Parameters, if nested, should be separated by `.` for each nesting level,
+        e.g. {"param.subparam.subsubparam": "override_value"}
     mp_workers : int
         Number of workers to allocate for multiprocessed metric computation
 
@@ -212,6 +223,7 @@ def compute_metrics(
 
     """
     config = helper.read_config(config_path)
+    config = _override_config_parameters(config, override_params)
     model_name = _get_unique_model_name(config)
 
     # Determine file paths
@@ -285,6 +297,13 @@ def _get_unique_model_name(config: dict) -> str:
 
     TODO: add this as a __name__ for each model instead
     """
+
+    # Format to avoid scientific notation, remove trailing zeros
+    def format_value(val):
+        if isinstance(val, float):
+            return f"{val:.8f}".rstrip("0").rstrip(".")
+        return str(val)
+
     fwd_params = config["forward_model_params"]
     operations = fwd_params["operations"]
 
@@ -308,10 +327,10 @@ def _get_unique_model_name(config: dict) -> str:
         [
             f"name={recon_model_name}",
             f"numpsfs={depth}",
-            f"psfstride={psf_stride}",
-            f"masknoise={masknoise}",
-            f"shotnoise={shotnoise}",
-            f"readnoise={readnoise}",
+            f"psfstride={format_value(psf_stride)}",
+            f"masknoise={format_value(masknoise)}",
+            f"shotnoise={format_value(shotnoise)}",
+            f"readnoise={format_value(readnoise)}",
         ]
     )
 
@@ -403,6 +422,25 @@ def _extract_sample_name(pred_path: str, model_prefix: str) -> str:
     else:
         sample_name = filename.replace(".npy", "")
     return sample_name
+
+
+def _override_config_parameters(config: dict, overrides: dict[str, Any]) -> dict:
+    """
+    Override the parameters in a configuration dictionary with specified values.
+
+    Parameters in the overrides should be keyed `parameter_name` : `new_value`.
+    If nested,`parameter_name` should be a string separated by `.` for each
+    nesting level, e.g. {"param.subparam.subsubparam": "override_value"}
+    """
+    for parameter_name, value in overrides.items():
+        param_levels = parameter_name.split(".")
+        d = config
+        for key in param_levels[:-1]:
+            if key not in d or not isinstance(d[key], dict):
+                d[key] = {}
+            d = d[key]
+        d[param_levels[-1]] = value
+    return config
 
 
 def _display_config_cli(config: dict):
