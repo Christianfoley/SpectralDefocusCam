@@ -50,7 +50,7 @@ recon_model_params:
   tv_lambdax: 0.66
   print_every: 200
   convergence_tolerance: 100 # number of iters with no loss decrease before stopping
-  plot: True
+  plot: False
   
 # training params
 batch_size: 1

@@ -17,12 +17,12 @@ forward_model_params:
   stack_depth: 1
   psf:
     lri: False
-    stride: -1 # stride of -1 means only uses last psfs level
+    stride: 1
     symmetric: True
     optimize: False
     padded_shape: 768 # only used if LRI is False
     largest_psf_diam: 128
-    exposures: [0.04761] # exposures of eahc psf level
+    exposures: [0.00151] # exposures of eahc psf level
     threshold: 0.55 # noise threshold
     norm: one # applies normalization to each psf ("one": L1, "two": L2)
   operations:
@@ -70,7 +70,6 @@ lr_scheduler:
 
 # restarting from checkpoint
 preload_weights: True
-checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_L1psf_1meas_blurry.yml/2024_03_12_07_11_06/saved_model_ep6_testloss_0.13591050004305424.pt"
 offset: 6
 
 # other params

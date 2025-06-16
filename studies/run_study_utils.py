@@ -6,6 +6,8 @@
 
 import glob
 import os
+import pathlib
+import time
 import torch
 import json
 import scipy.io as io
@@ -32,6 +34,129 @@ from torch.utils.data import DataLoader
 torch.manual_seed(6.626)
 
 METRICS = ["mse", "cossim", "psnr", "ssim"]
+
+
+def run_study_sweep(
+    study_name: str,
+    config_paths: list[str],
+    overrides: Optional[list[dict]] = None,
+    project_name: str = "SpectralDefocusCam",
+    overwrite_existing_recons: bool | list[bool] = False,
+    overwrite_existing_metrics: bool | list[bool] = False,
+    study_name_suffixes: Optional[list[str]] = None,
+):
+    """
+    Run a full study sweep over a set of config_paths, creating a WandB run for each config, generating
+    all reconstructions according to the config's specification, and computing metrics for that config's
+    reconstructions.
+
+    Parameters
+    ----------
+    study_name : str
+        Name of the study, used as a suffix in WandB
+    config_paths : list[str]
+        List of paths to the config files which describe the sweep
+    overrides : Optional[list[dict]], None
+        List of override dictionaries (e.g. {"param.subparam.subsubparam": "override_value"}) to apply
+        to the parameters of each config at the corresponding index
+    project_name : str, "SpectralDefocusCam
+        Name of the project in WandB
+    overwrite_existing_recons : bool | list[bool], Fasle
+        Whether to overwrite reconstruction files in existing paths, or skip them if they exist. If
+        a bool, applies to all runs. If a list of bools, applies to the run at the corresponding
+        index
+    overwrite_existing_metrics : bool | list[bool], False
+        Whether to overwrite metrics files in existing paths, or skip them if they exist. If a
+        bool, applies to all runs. If a list of bools, applies to the run at the corresponding
+        index
+    study_name_suffixes : Optional[list[str]], None
+        A list of suffixes for the name of each study, added at the end of the study name. This
+        is helpful to distinguish runs in WandB if different studies point to the same config
+        path but have different overrides
+
+    """
+    # Do some initial cleansing to make sure the run is set up right
+    if isinstance(overwrite_existing_recons, bool):
+        overwrite_existing_recons = [overwrite_existing_recons] * len(config_paths)
+    if isinstance(overwrite_existing_metrics, bool):
+        overwrite_existing_metrics = [overwrite_existing_metrics] * len(config_paths)
+    if overrides is None:
+        overrides = [{}] * len(config_paths)
+    if study_name_suffixes is None:
+        study_name_suffixes = [""] * len(config_paths)
+    assert (
+        len(config_paths)
+        == len(overwrite_existing_metrics)
+        == len(overwrite_existing_recons)
+        == len(overrides)
+    ), (
+        "Unmatched arguments for sweep! "
+        "Expected all sweep arguments to be the same length, "
+        f"but got: config_paths={len(config_paths)}, "
+        f"overwrite_existing_metrics={len(overwrite_existing_metrics)}, "
+        f"overwrite_existing_recons={len(overwrite_existing_recons)}, "
+        f"overrides={len(overrides)}"
+    )
+
+    print(f"Collected {len(config_paths)} configs:")
+    for i, config_path in enumerate(config_paths):
+        print("\t", os.path.abspath(config_path))
+        print(
+            f"\t\toverwrite_existing_metrics={overwrite_existing_metrics[i]}, "
+            f"overwrite_existing_recons={overwrite_existing_recons[i]}, "
+            f"overrides={overrides[i]}"
+        )
+    print("\n")
+
+    print("Beginning run")
+    start = time.time()
+    for (
+        config_path,
+        override_params,
+        overwrite_recons,
+        overwrite_metrics,
+        suffix,
+    ) in zip(
+        config_paths,
+        overrides,
+        overwrite_existing_recons,
+        overwrite_existing_metrics,
+        study_name_suffixes,
+    ):
+        if not os.path.exists(config_path):
+            print(f"Config {config_path} not found! Continuing...")
+
+        run_name = f"{study_name}_{pathlib.Path(config_path).stem}"
+        wandb_run = wandb.init(
+            project=project_name,
+            name=f"{run_name}_{suffix}" if len(suffix) else run_name,
+            config=_override_config_parameters(
+                helper.read_config(config_path), override_params
+            ),
+        )
+
+        try:
+            reconstructed_files = run_reconstruction_grid(
+                config_path, overwrite_existing=overwrite_recons
+            )
+            wandb.log({"Num_valid_recons": len(reconstructed_files)})
+        except Exception as e:
+            print(f"Reconstructions failed: {str(e)}")
+
+        try:
+            metrics_path = compute_metrics(
+                config_path, overwrite_existing=overwrite_metrics
+            )
+            with open(metrics_path, "r") as f:
+                wandb.log(json.load(f))
+        except Exception as e:
+            print(f"Metrics computation failed:{str(e)}")
+
+        wandb_run.finish()
+
+    print("\n")
+    print("Done!")
+    print(f"Total time: {time.time() - start:.2f} seconds.")
 
 
 def run_reconstruction_grid(
