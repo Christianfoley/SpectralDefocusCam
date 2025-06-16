@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import random
 import scipy.io as io
 import os
@@ -11,6 +12,9 @@ from torch.utils.data import DataLoader
 
 # SETS RANDOM SEED DO NOT CHANGE
 SEED = 6.626
+random.seed(SEED)
+np.random.seed(int(SEED))
+torch.manual_seed(SEED)
 
 
 def get_data_precomputed(
@@ -101,7 +105,6 @@ def partition(train, val, test, base_path):
     tuple(list, list, list)
         list of filepaths to samples in the train, test, and validation sets
     """
-    random.seed(SEED)
     if isinstance(train, str):
         possible = {"harvard", "fruit", "pavia"}
         assert train in possible and val in possible and test in possible
