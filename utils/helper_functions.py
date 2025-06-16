@@ -258,34 +258,6 @@ def stack_rgb_opt(
     return stackedRGB
 
 
-def preprocess(im):
-    # Crop indices
-    c1 = 100
-    c2 = 420
-    c3 = 80
-    c4 = 540  # indices for 64 channel image
-    # c1 = 260-128; c2 = c1 + 256; c3 = 310 - 128; c4 = c3 + 256
-
-    # Crop and normalize mask
-    mask = mask[c1:c2, c3:c4, :]
-    mask = mask / np.max(mask)
-
-    # Crop and normalize PSF
-    psf = psf[c1:c2, c3:c4]
-    psf = psf / np.linalg.norm(psf)
-
-    # Remove defective pixels in mask calibration
-    mask_sum = np.sum(mask, 2)
-    ind = np.unravel_index((np.argmax(mask_sum, axis=None)), mask_sum.shape)
-    mask[ind[0] - 2 : ind[0] + 2, ind[1] - 2 : ind[1] + 2, :] = 0
-
-    # Remove defective pixels in measurement
-    im = im[c1:c2, c3:c4]
-    im = im / np.max(im)
-    im[ind[0] - 2 : ind[0] + 2, ind[1] - 2 : ind[1] + 2] = 0
-    return mask, psf, im
-
-
 def plot_superpixel_waves(
     cube, waves_start=390, waves_end=870, startx=1557, starty=826, scale=1
 ):
