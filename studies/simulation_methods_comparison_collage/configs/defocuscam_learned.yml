@@ -74,7 +74,6 @@ lr_scheduler:
 
 # restarting from checkpoint
 preload_weights: True
-checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_firstlastonly_L1psf_5meas.yml/2024_03_20_18_52_09/saved_model_ep60_testloss_0.055166668421149534.pt"
 offset: 61
 
 # other params

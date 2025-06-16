@@ -49,7 +49,7 @@ recon_model_params:
   tv_lambdaw: 0.1
   tv_lambdax: 0.66
   print_every: 100
-  plot: False
+  plot: True
   
 # training params
 batch_size: 1
