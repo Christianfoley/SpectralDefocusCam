@@ -1047,7 +1047,7 @@ def get_lsi_psfs(
 
     ################ Read in psfs #################
     psfs = read_psfs(psf_dir, verbose=verbose)
-    if blurstride < 0: # only defocused psfs
+    if blurstride < 0:  # only defocused psfs
         psfs = psfs[-1:]
     else:
         psfs = psfs[start_idx : blur_levels * blurstride : blurstride]
@@ -1060,7 +1060,7 @@ def get_lsi_psfs(
         centers = [first_center] * len(psfs)
     else:
         for i, psf in tqdm(list(enumerate(psfs)), "Centering", file=sys.stdout):
-            ksize = ksize[i] if i < len(ksize) else 7
+            ksize = ksizes[i] if i < len(ksizes) else 7
             centers.append(get_psf_center(psf, kernel_size=ksize))
 
     ################ Process patches (centering, noise reduction, thresholding) #################

@@ -1,5 +1,5 @@
 import glob
-from cleanplots import *
+from cleanplots import *  # noqa: F403
 import seaborn as sns
 from scipy.signal import find_peaks
 import numpy as np
@@ -84,7 +84,7 @@ def plot_spatial_profile_and_recon(
         profile_normal = mean_img_normal[6, :]
         profile_noisy = mean_img_noisy[6, :]
     else:
-        profile_normal = mean_img_normal[:, 6]
+        profile_normal = mean_img_normal[:, 6]  # noqa: F841
         profile_noisy = mean_img_noisy[:, 6]
 
     # Skipping for plots in the paper as so similar it obscures the plot
