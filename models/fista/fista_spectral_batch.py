@@ -43,16 +43,20 @@ class fista_spectral(torch.nn.Module):
         # Calculate the eigenvalue to set the step size
         maxeig = self.power_iteration(self.Hpower, (self.DIMS0 * 2, self.DIMS1 * 2), 10)
         self.L = maxeig * 200  # step size for gd update
+        self.L *= params.get("l_mult", 1)
 
         self.prox_method = params.get("prox_method", "tv")  # 'non-neg', 'tv', 'native'
 
         # Define soft-thresholding constants
-        self.tau = params.get("tau", 0.5)  # Native sparsity tuning parameter
+        self.tau = params.get("tau", 0.7)  # Native sparsity tuning parameter
         self.tv_lambda = params.get("tv_lambda", 0.00005)  # TV tuning parameter
         self.tv_lambdaw = params.get("tv_lambdaw", 0.00005)  # TV tuning for wavelength
         self.tv_lambdax = params.get("tv_lambdax", 0.00005)  # TV tuning for wavelength
         self.lowrank_lambda = params.get("lowrank_lambda", 0.00005)  # Low rank tuning
-        self.break_diverge_early = False  # Must be manually set
+
+        # early divergence is determined as the loss increasing by 100x from its min or
+        # nanning out
+        self.break_diverge_early = params.get("break_on_divergence", False)
         self.convergence_tolerance = params.get(
             "convergence_tolerance", 10000
         )  # number of iters with no loss decrease before stopping
@@ -60,7 +64,9 @@ class fista_spectral(torch.nn.Module):
 
         # Number of iterations of FISTA
         self.iters = params.get("iters", 500)
-
+        # Whether to best (min loss) vs final (last) recon. If stable convergence, last
+        # should be the best anyway, so typically defaults to False
+        self.return_best = params.get("return_best", False)
         self.show_recon_progress = params.get("show_progress", True)  # print progress
         self.print_every = params.get("print_every", 20)  # Frequency to print progress
         self.plot = params.get("plot", True)  # Whether to include plots in progress
@@ -210,21 +216,27 @@ class fista_spectral(torch.nn.Module):
         llist = []
         min_loss = np.inf
         min_loss_iter = 0
+        self.xbest = None
 
         # Start FISTA loop
         for i in range(0, self.iters):
+            # Run fista
             vk, tk, xk, l = self.fista_update(vk, tk, xk, inputs)
 
-            # Track the loss to see if we're converged
+            # Stopping and logging behavior
             llist.append(l.item())
-            if l.item() < min_loss:
+            if l.item() < min_loss and not np.isnan(l.item()):
                 min_loss = l.item()
                 min_loss_iter = i
+                self.xbest = self.crop(xk)
+
             if i > min_loss_iter + self.convergence_tolerance:
                 print(f"Converged with best loss {min(llist):.4f}")
                 break
 
-            if self.break_diverge_early and l.item() > llist[0] * 100:
+            if np.isnan(l.item()) or (
+                self.break_diverge_early and l.item() > llist[0] * 100
+            ):
                 print(f"Diverged with loss {l.item():.4f}, stopping...")
                 break
 
@@ -248,6 +260,11 @@ class fista_spectral(torch.nn.Module):
 
         xout = self.crop(xk)
         self.llist = llist
+        if self.return_best:
+            print(
+                f"Returning best recon, with loss {min_loss} from iter {min_loss_iter}."
+            )
+            return self.xbest, self.llist
         return xout, llist
 
     def forward(self, input):
