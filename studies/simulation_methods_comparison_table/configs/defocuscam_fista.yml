@@ -35,7 +35,6 @@ forward_model_params:
   mask_noise:
     type: gaussian
     intensity: 0.001 # STD of gaussian calibration noise (we expect much more than sample)
-    stopband_only: true
   sample_noise:
     intensity: 0.001 # STD of gaussian read noise
     photon_count: 10000 # photon count for shot noise

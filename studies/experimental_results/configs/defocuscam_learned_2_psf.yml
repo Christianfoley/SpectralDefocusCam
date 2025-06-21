@@ -4,13 +4,13 @@
 # ------------------------------------------ #
 
 # data paths
-checkpoints_dir: "/home/cfoley/defocuscamdata/models/checkpoint_results_learned_largecrop_config.yml/2024_03_16_21_09_51/saved_model_ep49_testloss_0.05782177185882693.pt"
+checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_results_learned_largecrop_config.yml/2024_03_16_21_09_51/saved_model_ep49_testloss_0.05782177185882693.pt"
 psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
 base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_largecrop_shotnoise_lsi_02_07_L1psf_2meas"
 mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 # model params
-device: 1
+device: 2
 data_precomputed: True
 passthrough: True
 forward_model_params:
@@ -68,8 +68,7 @@ lr_scheduler:
     gamma: 0.94
 
 # restarting from checkpoint
-preload_weights: False
-checkpoint_dir: ""
+preload_weights: True
 offset: 0
 
 # other params

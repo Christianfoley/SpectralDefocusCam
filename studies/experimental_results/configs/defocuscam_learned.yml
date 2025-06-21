@@ -10,7 +10,7 @@ base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_dat
 mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 # model params
-device: 0
+device: 2
 data_precomputed: True
 passthrough: True
 forward_model_params:

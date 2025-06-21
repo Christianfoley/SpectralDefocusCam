@@ -29,13 +29,13 @@ forward_model_params:
     sim_meas: True
     adjoint: False
     spectral_pad: False
-    fwd_mask_noise: true
-    shot_noise: true
-    read_noise: true
+    fwd_mask_noise: False
+    shot_noise: False
+    read_noise: False
   mask_noise:
     type: gaussian
     intensity: 0.001 # STD of gaussian calibration noise (we expect much more than sample)
-    stopband_only: true
+    stopband_only: False
   sample_noise:
     intensity: 0.001 # STD of gaussian read noise
     photon_count: 10000 # photon count for shot noise
