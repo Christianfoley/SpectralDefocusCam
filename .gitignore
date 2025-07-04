@@ -11,3 +11,7 @@ __pycache__/*
 */*.npy
 
 studies/*/outputs/
+studies/*/data/
+studies/data
+wandb
+studies/wandb
