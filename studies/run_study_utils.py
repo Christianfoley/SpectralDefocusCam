@@ -137,7 +137,9 @@ def run_study_sweep(
 
         try:
             reconstructed_files = run_reconstruction_grid(
-                config_path, overwrite_existing=overwrite_recons
+                config_path,
+                overwrite_existing=overwrite_recons,
+                override_params=override_params,
             )
             wandb.log({"Num_valid_recons": len(reconstructed_files)})
         except Exception as e:
@@ -145,7 +147,9 @@ def run_study_sweep(
 
         try:
             metrics_path = compute_metrics(
-                config_path, overwrite_existing=overwrite_metrics
+                config_path,
+                overwrite_existing=overwrite_metrics,
+                override_params=override_params,
             )
             with open(metrics_path, "r") as f:
                 wandb.log(json.load(f))

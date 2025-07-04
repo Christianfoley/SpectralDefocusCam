@@ -186,7 +186,9 @@ def save_reconstructed_fc_image(
     checkpoint_path: str,
     measurement_path: str,
     scaling: tuple[int, int, int] = (1, 1, 1),
-    fc_range: tuple[int, int] = (390, 870),
+    fc_range: tuple[int, int] = (398, 862),
+    use_band_average: bool = False,
+    gamma: float = 0.8,
 ) -> tuple[Image, str]:  # type: ignore
     """
     Convenience function to construct a false color image from a reconstructed
@@ -206,13 +208,135 @@ def save_reconstructed_fc_image(
         )
         + ".png",
     )
+    if use_band_average:
+        recon_fc = helper.select_and_average_bands(
+            recon, fc_range=fc_range, scaling=scaling
+        )
+    else:
+        recon_fc = fast_rgb_img_from_spectrum(recon, fc_range=fc_range, gamma=gamma)
 
-    recon_fc = helper.select_and_average_bands(
-        recon, fc_range=fc_range, scaling=scaling
-    )
     recon_fc_uint8 = (helper.value_norm(recon_fc) * 255).astype(np.uint8)
     recon_image = Image.fromarray(recon_fc_uint8)
 
     os.makedirs(out_base_path, exist_ok=True)
     recon_image.save(out_path)
     return recon_image, out_path
+
+
+def resample_spectral_cube(cube, wavelengths, step=10):
+    """
+    Resample a hyperspectral cube along the spectral axis to a uniform wavelength grid.
+
+    Parameters:
+    - cube: ndarray of shape (H, W, λ), the original hyperspectral data.
+    - wavelengths: 1D array of shape (λ,), corresponding to the spectral dimension.
+    - step: desired wavelength step size in nm (e.g., 10 for 10nm intervals).
+
+    Returns:
+    - new_cube: ndarray of shape (H, W, λ'), resampled spectral cube.
+    - new_wavelengths: 1D array of shape (λ'), uniformly spaced wavelengths.
+    """
+    wavelengths = np.asarray(wavelengths)
+    H, W, L = cube.shape
+
+    if L != len(wavelengths):
+        raise ValueError("Last dimension of cube must match length of wavelengths.")
+
+    # Create new wavelength axis
+    min_wl = np.ceil(wavelengths.min())
+    max_wl = np.floor(wavelengths.max())
+    new_wavelengths = np.arange(min_wl, max_wl + 1e-6, step)
+
+    # Flatten spatial dimensions
+    flat_cube = cube.reshape(-1, L)
+
+    # Interpolate each spectrum
+    new_flat_cube = np.array(
+        [np.interp(new_wavelengths, wavelengths, spectrum) for spectrum in flat_cube]
+    )
+
+    # Reshape back to (H, W, λ')
+    new_cube = new_flat_cube.reshape(H, W, -1)
+
+    return new_cube, new_wavelengths
+
+
+def fast_rgb_img_from_spectrum(data_cube, fc_range, step=10, gamma=0.7):
+    """
+    Convert a hyperspectral data cube to an RGB image using vectorized colour-science.
+
+    Parameters:
+    - data_cube: np.ndarray of shape (H, W, λ)
+    - fc_range: tuple of (start_wavelength, end_wavelength) in nm
+    - step: target wavelength resampling interval in nm
+    - gamma: gamma correction value
+
+    Returns:
+    - RGB image (H, W, 3)
+    """
+    import numpy as np
+    import colour
+    from colour import SpectralShape, MSDS_CMFS, SDS_ILLUMINANTS
+
+    H, W, L = data_cube.shape
+    wavs = np.linspace(fc_range[0], fc_range[1], L)
+    cube, new_wavs = resample_spectral_cube(data_cube, wavs, step)
+
+    # Ensure data is in reasonable range (normalize if needed)
+    # Assuming your spectral data represents reflectance (0-1) or radiance
+    if np.max(cube) > 10:  # If data seems to be in large units
+        cube = cube / np.max(cube)  # Normalize to 0-1 range
+
+    # Flatten spatial dimensions
+    pixels = cube.reshape(-1, cube.shape[-1])  # shape: (H*W, L)
+
+    # Create spectral shape
+    wavelength_interval = new_wavs[1] - new_wavs[0] if len(new_wavs) > 1 else step
+    shape = SpectralShape(
+        start=new_wavs[0], end=new_wavs[-1], interval=wavelength_interval
+    )
+
+    # Get CMFs and align to our wavelengths
+    cmfs = MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
+    cmfs_interp = cmfs.copy().align(shape)
+    cmf_array = cmfs_interp.values  # shape: (L, 3) for X, Y, Z
+
+    # Get illuminant and align to same wavelengths
+    illuminant = SDS_ILLUMINANTS["D65"].copy().align(shape)
+    illum_array = illuminant.values.flatten()  # Ensure 1D
+
+    # Proper normalization constant (standard CIE calculation)
+    # k normalizes so that perfect white reflector gives Y=100
+    k = 100.0 / np.trapz(cmf_array[:, 1] * illum_array, dx=wavelength_interval)
+
+    # For reflectance data, multiply by illuminant
+    # If your data is already radiance, you might skip illuminant multiplication
+    illuminated_pixels = pixels * illum_array[np.newaxis, :]  # Broadcast illuminant
+
+    # Integrate to get XYZ values
+    # Using trapezoidal integration approximation with matrix multiplication
+    XYZ = k * wavelength_interval * np.dot(illuminated_pixels, cmf_array)
+
+    # Ensure XYZ values are reasonable
+    # print(
+    #     f"XYZ range: X[{np.min(XYZ[:, 0]):.3f}, {np.max(XYZ[:, 0]):.3f}], "
+    #     f"Y[{np.min(XYZ[:, 1]):.3f}, {np.max(XYZ[:, 1]):.3f}], "
+    #     f"Z[{np.min(XYZ[:, 2]):.3f}, {np.max(XYZ[:, 2]):.3f}]"
+    # )
+
+    # Convert XYZ to linear sRGB (no gamma correction yet)
+    rgb_linear = colour.XYZ_to_sRGB(XYZ / 100.0)  # This gives linear RGB values
+
+    # Handle out-of-gamut colors more gracefully
+    rgb_linear = np.clip(rgb_linear, 0, 1)
+
+    # Apply custom gamma correction for better appearance
+    gamma_corrected = np.power(rgb_linear, 1.0 / gamma)
+
+    # Final clipping
+    rgb_final = np.clip(gamma_corrected, 0, 1)
+
+    # print(f"Final RGB range: [{np.min(rgb_final):.3f}, {np.max(rgb_final):.3f}]")
+
+    # Reshape to image
+    return rgb_final.reshape(H, W, 3)
