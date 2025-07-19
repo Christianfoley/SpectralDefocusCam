@@ -395,7 +395,7 @@ class Normalize(object):
         mean = tensor.mean(dim=self.ignore_dims, keepdim=True)
         std = tensor.std(dim=self.ignore_dims, unbiased=False, keepdim=True)
         std[std == 0] = 1  # Handling potential division by zero
-        return ((tensor - mean + self.mean) / std) * self.std
+        return ((tensor - mean) / std) * self.std + self.mean
 
 
 class ReArrange(object):
