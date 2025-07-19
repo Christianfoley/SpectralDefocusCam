@@ -239,9 +239,9 @@ def main():
     )
 
     # Move to an extremely high noise value, where both models inevitably fail
-    high_read_noise = 1e-1
-    high_shot_noise = 1e1
-    high_calibration_noise = 1e-1
+    high_read_noise = 5e-2
+    high_shot_noise = 1e2
+    high_calibration_noise = 5e-2
     learned_model.model1.read_noise_intensity = high_read_noise
     learned_model.model1.shot_noise_photon_count = high_shot_noise
     learned_model.model1.mask_noise_intensity = high_calibration_noise
