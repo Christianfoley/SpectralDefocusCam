@@ -1,9 +1,11 @@
+import itertools
 import numpy as np
 import os, glob, csv
 import scipy.io as io
 import h5py
 from scipy.interpolate import interp1d
 import tqdm
+import ray
 
 
 def get_patches(patch_size, img_size):
@@ -33,7 +35,7 @@ def get_patches(patch_size, img_size):
     return patches
 
 
-def save_patches(patches, outpath, sourcepath):
+def save_patches(patches, outpath, sourcepath, overwrite_existing) -> list[str]:
     """
     Save a list of patches to a directory outpath that were created from a file at sourcepath.
     Files are all saved in the outpath as derivatives of their sourcepath. Specifically, they are
@@ -47,18 +49,28 @@ def save_patches(patches, outpath, sourcepath):
         path to output dir
     sourcepath : str
         path to img data file from which patches were created
+    overwrite_existing : bool
+        whether to overwrite existing data in outpath
     """
     if not os.path.exists(outpath):
         os.makedirs(outpath)
 
     filename = os.path.splitext(os.path.basename(sourcepath))[0]
 
+    output_patch_paths = []
     for i, patch in enumerate(patches):
         patch_dict = {"image": patch}
         output_filename = f"{filename}_patch_{i}.mat"
         output_path = os.path.join(outpath, output_filename)
 
+        if os.path.exists(output_path) and not overwrite_existing:
+            print(f"Patch {output_filename} already exists, skipping...")
+            output_patch_paths.append(output_path)
+            continue
+
         io.savemat(output_path, patch_dict)
+        output_patch_paths.append(output_path)
+    return output_patch_paths
 
 
 def read_compressed(img):
@@ -149,8 +161,38 @@ def preprocess_harvard_img(
     return img_patches
 
 
+@ray.remote(num_cpus=1)
+def _preprocess_harvard_img_ray(
+    img_path: str,
+    out_path: str,
+    patch_size: tuple[int, int],
+    calib_vec: list,
+    num_channels: int,
+    skip_masked: bool = True,
+    overwrite_existing: bool = False,
+) -> list[str]:
+    """
+    Helper to intercept and distribute processing of Harvard images.
+    """
+    sourcepath = img_path
+    try:
+        img = io.loadmat(img_path)
+        patches = preprocess_harvard_img(
+            img, patch_size, calib_vec, num_channels, skip_masked=skip_masked
+        )
+        return save_patches(patches, out_path, sourcepath, overwrite_existing)
+    except Exception as e:
+        print(f"Skipping {os.path.basename(img_path)}:{e}")
+    return []
+
+
 def preprocess_harvard_data(
-    datapath, outpath, patch_size, num_channels=30, skip_masked=True
+    datapath,
+    outpath,
+    patch_size,
+    num_channels=30,
+    skip_masked=True,
+    overwrite_existing=False,
 ):
     """
     Preprocesses all harvard data into patches. Interpolates along spectral dimension and
@@ -168,9 +210,8 @@ def preprocess_harvard_data(
     num_channels : int
         number of spectral channels
     """
-    if os.path.exists(outpath):
-        print("Found existing data at harvard path... Skipping.")
-        return
+    assert ray.is_initialized(), "Ray must be initialized to preprocess Harvard data."
+    os.makedirs(outpath, exist_ok=True)
 
     imgs_hsdbi = glob.glob(os.path.join(datapath, "Cz_hsdbi/*.mat"))
     with open(os.path.join(datapath, "CZ_hsdbi/calib.txt"), "r") as f:
@@ -180,21 +221,23 @@ def preprocess_harvard_data(
     with open(os.path.join(datapath, "CZ_hsdb/calib.txt"), "r") as f:
         calib_vals_hsdb = [float(num) for num in f.readline().split("   ")[1:]]
 
+    all_result_paths = []
     for i, img in tqdm.tqdm(
         list(enumerate(imgs_hsdb + imgs_hsdbi)), desc="Preprocessing Harvard Data"
     ):
         calib_vals = calib_vals_hsdb if i < len(imgs_hsdb) else calib_vals_hsdbi
-        try:
-            sourcepath = img
-            img = io.loadmat(img)
-
-            patches = preprocess_harvard_img(
-                img, patch_size, calib_vals, num_channels, skip_masked=skip_masked
-            )
-            save_patches(patches, outpath, sourcepath)
-        except Exception as e:
-            print(f"Skipping {os.path.basename(img)}:{e}")
-            continue
+        result_paths_promise = _preprocess_harvard_img_ray.remote(
+            img,
+            outpath,
+            patch_size,
+            calib_vals,
+            num_channels,
+            skip_masked,
+            overwrite_existing,
+        )
+        all_result_paths.append(result_paths_promise)
+    all_result_paths = ray.get(all_result_paths)
+    return list(itertools.chain.from_iterable(all_result_paths))
 
 
 def preprocess_pavia_img(img, patch_size, num_channels):
@@ -229,7 +272,30 @@ def preprocess_pavia_img(img, patch_size, num_channels):
     return img_patches
 
 
-def preprocess_pavia_data(datapath, outpath, patch_size, num_channels=30):
+@ray.remote(num_cpus=1)
+def _preprocess_pavia_img_ray(
+    img_path: str,
+    out_path: str,
+    patch_size: tuple[int, int],
+    num_channels: int,
+    overwrite_existing: bool = False,
+) -> list[str]:
+    """
+    Helper to intercept and distribute processing of Pavia images.
+    """
+    sourcepath = img_path
+    try:
+        img = io.loadmat(img_path)
+        patches = preprocess_pavia_img(img, patch_size, num_channels)
+        return save_patches(patches, out_path, sourcepath, overwrite_existing)
+    except Exception as e:
+        print(f"Skipping {os.path.basename(img_path)}:{e}")
+    return []
+
+
+def preprocess_pavia_data(
+    datapath, outpath, patch_size, num_channels=30, overwrite_existing=False
+):
     """
     Preprocesses all pavia data into patches. Interpolates along spectral dimension and
     saves each patch as a .mat file.
@@ -247,21 +313,18 @@ def preprocess_pavia_data(datapath, outpath, patch_size, num_channels=30):
     num_channels : int
         number of spectral channels in output
     """
-    if os.path.exists(outpath):
-        print("Found existing data at Pavia path... Skipping.")
-        return
+    assert ray.is_initialized(), "Ray must be initialized to preprocess Pavia data."
+    os.makedirs(outpath, exist_ok=True)
     imgs = glob.glob(os.path.join(datapath, "*.mat"))
 
+    all_result_paths = []
     for img in tqdm.tqdm(imgs, desc="Preprocessing Pavia Data"):
-        sourcepath = img
-        try:
-            img = io.loadmat(img)
-
-            patches = preprocess_pavia_img(img, patch_size, num_channels)
-            save_patches(patches, outpath, sourcepath)
-        except Exception as e:
-            print(f"Skipping {os.path.basename(img)}:{e}")
-            continue
+        result_paths_promise = _preprocess_pavia_img_ray.remote(
+            img, outpath, patch_size, num_channels, overwrite_existing
+        )
+        all_result_paths.append(result_paths_promise)
+    all_result_paths = ray.get(all_result_paths)
+    return list(itertools.chain.from_iterable(all_result_paths))
 
 
 def preprocess_fruit_img(img, patch_size, num_channels):
@@ -293,7 +356,31 @@ def preprocess_fruit_img(img, patch_size, num_channels):
     return img_patches
 
 
-def preprocess_fruit_data(datapath, outpath, patch_size, num_channels=30):
+@ray.remote(num_cpus=1)
+def _preprocess_fruit_img_ray(
+    img_path: str,
+    out_path: str,
+    patch_size: tuple[int, int],
+    num_channels: int,
+    overwrite_existing: bool = False,
+) -> list[str]:
+    """
+    Helper to intercept and distribute processing of fruit images. See
+    `preprocess_fruit_img` docstring.
+    """
+    sourcepath = img_path
+    try:
+        img = io.loadmat(img_path)
+        patches = preprocess_fruit_img(img, patch_size, num_channels)
+        return save_patches(patches, out_path, sourcepath, overwrite_existing)
+    except Exception as e:
+        print(f"Skipping {os.path.basename(img_path)}:{e}")
+    return []
+
+
+def preprocess_fruit_data(
+    datapath, outpath, patch_size, num_channels=30, overwrite_existing=False
+):
     """
     Preprocesses all HS fruit data into patches. Interpolates along spectral dimension and
     saves each patch as a .mat file.
@@ -309,22 +396,23 @@ def preprocess_fruit_data(datapath, outpath, patch_size, num_channels=30):
         x and y patch size
     num_channels : int
         number of spectral channels in output
+    overwrite_existing : bool
+        whether to overwrite existing data in outpath
     """
-    if os.path.exists(outpath):
-        print("Found existing data at fruit path... Skipping.")
-        return
+    assert ray.is_initialized(), "Ray must be initialized to preprocess fruit data."
+    os.makedirs(outpath, exist_ok=True)
+
     imgs = glob.glob(os.path.join(datapath, "*.mat"))
 
+    all_result_paths = []
     for img in tqdm.tqdm(imgs, desc="Preprocessing Fruit Data"):
-        sourcepath = img
-        try:
-            img = io.loadmat(img)
+        result_paths_promise = _preprocess_fruit_img_ray.remote(
+            img, outpath, patch_size, num_channels, overwrite_existing
+        )
+        all_result_paths.append(result_paths_promise)
+    all_result_paths = ray.get(all_result_paths)
 
-            patches = preprocess_fruit_img(img, patch_size, num_channels)
-            save_patches(patches, outpath, sourcepath)
-        except Exception as e:
-            print(f"Skipping {os.path.basename(img)}:{e}")
-            continue
+    return list(itertools.chain.from_iterable(all_result_paths))
 
 
 def preprocess_icvl_img(img, patch_size, num_channels):
@@ -358,7 +446,33 @@ def preprocess_icvl_img(img, patch_size, num_channels):
     return img_patches
 
 
-def preprocess_icvl_data(datapath, outpath, patch_size, num_channels=30):
+@ray.remote(num_cpus=1)
+def _preprocess_icvl_img_ray(
+    img_path: str,
+    out_path: str,
+    patch_size: tuple[int, int],
+    num_channels: int,
+    overwrite_existing: bool = False,
+) -> list[str]:
+    """
+    Helper to intercept and distribute processing of ICVL images. See
+    `preprocess_icvl_img` docstring.
+    """
+    sourcepath = img_path
+    try:
+        img = h5py.File(img_path)
+
+        patches = preprocess_icvl_img(img, patch_size, num_channels)
+        return save_patches(patches, out_path, sourcepath, overwrite_existing)
+    except Exception as e:
+        print(f"Skipping {os.path.basename(img_path)}:{e}")
+
+    return []
+
+
+def preprocess_icvl_data(
+    datapath, outpath, patch_size, num_channels=30, overwrite_existing=False
+):
     """
     Preprocess ICVL image into simulation-ready patches of given size.
     For specifics see: https://icvl.cs.bgu.ac.il/hyperspectral/
@@ -373,20 +487,20 @@ def preprocess_icvl_data(datapath, outpath, patch_size, num_channels=30):
         x and y patch size
     num_channels : int
         number of spectral channels in output
+    overwrite_existing : bool
+        whether to overwrite existing data in outpath
     """
-    if os.path.exists(outpath):
-        print("Found existing data at ICVL path... Skipping.")
-        return
+    assert ray.is_initialized(), "Ray must be initialized to preprocess ICVL data."
+    os.makedirs(outpath, exist_ok=True)
 
     imgs = glob.glob(os.path.join(datapath, "*.mat"))
 
+    all_result_paths = []
     for img in tqdm.tqdm(imgs, desc="Preprocessing ICVL Data"):
-        sourcepath = img
-        try:
-            img = h5py.File(img)
+        result_paths_promise = _preprocess_icvl_img_ray.remote(
+            img, outpath, patch_size, num_channels, overwrite_existing
+        )
+        all_result_paths.append(result_paths_promise)
+    all_result_paths = ray.get(all_result_paths)
 
-            patches = preprocess_icvl_img(img, patch_size, num_channels)
-            save_patches(patches, outpath, sourcepath)
-        except Exception as e:
-            print(f"Skipping {os.path.basename(img)}:{e}")
-            continue
+    return list(itertools.chain.from_iterable(all_result_paths))

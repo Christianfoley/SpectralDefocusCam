@@ -1,5 +1,6 @@
 import sys, os, glob
 
+import ray
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -86,9 +87,11 @@ def run_precomputation(config, device, batch=1):
     forward.build_data_pairs(os.path.join(prepd_data, "icvl_data"), fm, batch)
 
 
-def main(config):
+def main(config, num_cpus=8):
     # setup device
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+
+    ray.init(num_cpus=num_cpus)
 
     print("Num devices: ", torch.cuda.device_count())
     device = helper.get_device(config["device"])

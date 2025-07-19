@@ -4,16 +4,17 @@ import itertools
 
 import torch
 
+from utils import diffuser_utils
 from models.ensemble import SSLSimulationModel
 
-#----------------------------------------------------#
+# ----------------------------------------------------#
 # Utils for patchwise prediction on large images for #
 # learned model prediction. On simulated data, we    #
 # patchwise predict to extend the results of our     #
 # best models, trained on spectral filter masks of   #
 # size 256x256, to larger, higher resolution images  #
 # by effectively tiling our spectral filter          #
-#----------------------------------------------------#
+# ----------------------------------------------------#
 
 
 def stitch_patches(patches, centers):
@@ -89,7 +90,10 @@ def get_overlapping_positions(
 
     return list(itertools.product(y_centers, x_centers))
 
-def patchwise_predict_image_learned(model: SSLSimulationModel, image : torch.Tensor, min_overlap=64):
+
+def patchwise_predict_image_learned(
+    model: SSLSimulationModel, image: torch.Tensor, min_overlap=64
+):
     """
     Predict an entire large image using a learned model by breaking it into overlapping patches
     and predicting each patch separately, then stiching & blending the results.
@@ -104,39 +108,43 @@ def patchwise_predict_image_learned(model: SSLSimulationModel, image : torch.Ten
     min_overlap : int, optional
         The minimum overlap between patches in pixels, by default 64. Small values may lead to
         edge artifacts in the stitched prediction.
-    
+
     Returns
     -------
     np.ndarray
         The predicted image as a numpy array of shape (height, width, channels).
-    
+
     """
-    patchy, patchx  = model.model1.psfs.shape[-2:] 
+    patchy, patchx = model.model1.psfs.shape[-2:]
     patch_centers = get_overlapping_positions(
-        (image.shape[-2]//2, image.shape[-1]//2), 
+        (image.shape[-2] // 2, image.shape[-1] // 2),
         image.shape[-2:],
         (patchy, patchx),
-        min_overlap=min_overlap # The higher this is, the less edge artifacts may show up
+        min_overlap=min_overlap,  # The higher this is, the less edge artifacts may show up
     )
-
 
     prediction = np.zeros(image.squeeze().shape)
     contributions_mask = np.zeros(image.shape[-2:])
     for i, (ceny, cenx) in enumerate(patch_centers):
-        reg = [ceny - patchy//2, ceny + patchy//2, cenx - patchx//2, cenx + patchx//2]
-        patch_gt = image[..., reg[0]:reg[1], reg[2]:reg[3]]
+        reg = [
+            ceny - patchy // 2,
+            ceny + patchy // 2,
+            cenx - patchx // 2,
+            cenx + patchx // 2,
+        ]
+        patch_gt = image[..., reg[0] : reg[1], reg[2] : reg[3]]
         sim = model.model1(patch_gt.to(model.model1.device))
-        pred = model.model2((sim- sim.mean()) / sim.std()).detach().cpu().numpy()
-        pred = pred*patch_gt.std().numpy() + patch_gt.mean().numpy()
+        pred = model.model2((sim - sim.mean()) / sim.std()).detach().cpu().numpy()
+        pred = pred * patch_gt.std().numpy() + patch_gt.mean().numpy()
 
         # ------------ REMOVE NON IMAGE-BORDERING PATCH EDGE ARTIFACTS ----------- #
-        crop_width = pred.shape[-1]//10 # assuming patch is square
+        crop_width = pred.shape[-1] // 10  # assuming patch is square
 
         # Crop patch edges that are not bording an image edge
-        bordering_top = (ceny - patchy // 2 == 0)
-        bordering_bottom = (ceny + patchy // 2 == image.shape[-2])
-        bordering_right = (cenx + patchx // 2 == image.shape[-1])
-        bordering_left = (cenx - patchx // 2 == 0)
+        bordering_top = ceny - patchy // 2 == 0
+        bordering_bottom = ceny + patchy // 2 == image.shape[-2]
+        bordering_right = cenx + patchx // 2 == image.shape[-1]
+        bordering_left = cenx - patchx // 2 == 0
         if not bordering_top:
             pred, reg[0] = pred[..., crop_width:, :], reg[0] + crop_width
         if not bordering_bottom:
@@ -146,9 +154,30 @@ def patchwise_predict_image_learned(model: SSLSimulationModel, image : torch.Ten
         if not bordering_right:
             pred, reg[3] = pred[..., :, :-crop_width], reg[3] - crop_width
 
-
         # Insert the cropped patch into the prediction array
-        prediction[..., reg[0]:reg[1], reg[2]:reg[3]] += pred.squeeze()
-        contributions_mask[reg[0]:reg[1], reg[2]:reg[3]] += 1
+        prediction[..., reg[0] : reg[1], reg[2] : reg[3]] += pred.squeeze()
+        contributions_mask[reg[0] : reg[1], reg[2] : reg[3]] += 1
     prediction = prediction / contributions_mask
-    return np.maximum(0, prediction).transpose(1,2,0)
+    return np.maximum(0, prediction).transpose(1, 2, 0)
+
+
+def prep_image(image, crop_shape, patch_shape):
+    """
+    Our sample images are all (H X W X C), but of different sizes.
+    This helper function stantardizes these image shapes, normalizes them, and prepares them to be used as input
+    to the model.
+    """
+    image = np.stack(
+        [
+            diffuser_utils.pyramid_down(
+                image[: crop_shape[0], : crop_shape[1], i], patch_shape
+            )
+            for i in range(image.shape[-1])
+        ],
+        0,
+    )
+
+    image = image - max(0.0, np.min(image))
+    image = image / np.max(image)
+    image = torch.tensor(image)[None, None, ...]
+    return image

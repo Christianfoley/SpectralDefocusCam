@@ -140,12 +140,111 @@ def pre_plot(x, flip=True):
     return x
 
 
+# ----------------- VARIOUS METHODS FOR FALSE COLOR GENERATION ----------------- #
+
+
+def _resample_spectral_cube(cube, wavelengths, step=10):
+    """
+    Resample a hyperspectral cube along the spectral axis to a uniform wavelength grid.
+
+    Parameters:
+    - cube: ndarray of shape (H, W, λ), the original hyperspectral data.
+    - wavelengths: 1D array of shape (λ,), corresponding to the spectral dimension.
+    - step: desired wavelength step size in nm (e.g., 10 for 10nm intervals).
+
+    Returns:
+    - new_cube: ndarray of shape (H, W, λ'), resampled spectral cube.
+    - new_wavelengths: 1D array of shape (λ'), uniformly spaced wavelengths.
+    """
+    wavelengths = np.asarray(wavelengths)
+    H, W, L = cube.shape
+
+    if L != len(wavelengths):
+        raise ValueError("Last dimension of cube must match length of wavelengths.")
+
+    # Create new wavelength axis
+    min_wl = np.ceil(wavelengths.min())
+    max_wl = np.floor(wavelengths.max())
+    new_wavelengths = np.arange(min_wl, max_wl + 1e-6, step)
+
+    flat_cube = cube.reshape(-1, L)
+    new_flat_cube = np.array(
+        [np.interp(new_wavelengths, wavelengths, spectrum) for spectrum in flat_cube]
+    )
+
+    new_cube = new_flat_cube.reshape(H, W, -1)
+    return new_cube, new_wavelengths
+
+
+def fast_rgb_img_from_spectrum(data_cube, fc_range, step=10, gamma=0.7):
+    """
+    Convert a hyperspectral data cube to an RGB image using vectorized colour-science.
+
+    Parameters:
+    - data_cube: np.ndarray of shape (H, W, λ)
+    - fc_range: tuple of (start_wavelength, end_wavelength) in nm
+    - step: target wavelength resampling interval in nm
+    - gamma: gamma correction value
+
+    Returns:
+    - RGB image (H, W, 3)
+    """
+    import numpy as np
+    import colour
+    from colour import SpectralShape, MSDS_CMFS, SDS_ILLUMINANTS
+
+    H, W, L = data_cube.shape
+    wavs = np.linspace(fc_range[0], fc_range[1], L)
+    cube, new_wavs = _resample_spectral_cube(data_cube, wavs, step)
+
+    # Ensure data is in reasonable range (normalize if needed)
+    # Assuming your spectral data represents reflectance (0-1) or radiance
+    if np.max(cube) > 10:
+        cube = cube / np.max(cube)
+
+    pixels = cube.reshape(-1, cube.shape[-1])  # shape: (H*W, L)
+    wavelength_interval = new_wavs[1] - new_wavs[0] if len(new_wavs) > 1 else step
+    shape = SpectralShape(
+        start=new_wavs[0], end=new_wavs[-1], interval=wavelength_interval
+    )
+
+    # Get CMFs and align to our wavelengths
+    cmfs = MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
+    cmfs_interp = cmfs.copy().align(shape)
+    cmf_array = cmfs_interp.values  # shape: (L, 3) for X, Y, Z
+
+    # Get illuminant and align to same wavelengths
+    illuminant = SDS_ILLUMINANTS["D65"].copy().align(shape)
+    illum_array = illuminant.values.flatten()  # Ensure 1D
+
+    # Proper normalization constant (standard CIE calculation)
+    # k normalizes so that perfect white reflector gives Y=100
+    k = 100.0 / np.trapz(cmf_array[:, 1] * illum_array, dx=wavelength_interval)
+    illuminated_pixels = pixels * illum_array[np.newaxis, :]  # Broadcast illuminant
+
+    # Integrate to get XYZ values
+    # Using trapezoidal integration approximation
+    XYZ = k * wavelength_interval * np.dot(illuminated_pixels, cmf_array)
+    rgb_linear = colour.XYZ_to_sRGB(XYZ / 100.0)  # This gives linear RGB values
+
+    # Handle out-of-gamut colors more gracefully with custom gamma correction
+    rgb_linear = np.clip(rgb_linear, 0, 1)
+    gamma_corrected = np.power(rgb_linear, 1.0 / gamma)
+    rgb_final = np.clip(gamma_corrected, 0, 1)
+
+    return rgb_final.reshape(H, W, 3)
+
+
 def select_and_average_bands(
     data_cube,
     fc_range=(450, 810),
     spectral_ranges=[(400, 495), (495, 600), (600, 750)],
     scaling=[1, 1, 1],
 ):
+    """
+    Naive method that just averages over rgb bands in the data cube
+    and returns an RGB image.
+    """
     wavs = np.linspace(fc_range[0], fc_range[1], data_cube.shape[-1])
 
     averaged_bands = []
