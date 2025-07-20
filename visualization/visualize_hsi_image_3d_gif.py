@@ -348,6 +348,11 @@ def main():
             "spectral_range": (398, 862),
             "gamma": 0.5,
         },
+        "outside_3_author": {
+            "sample_path": "/home/cfoley/SpectralDefocusCam/studies/experimental_results/outputs/saved_model_ep49_testloss_0.05782177185882693_outside_three.npy",
+            "spectral_range": (398, 862),
+            "gamma": 0.5,
+        },
     }
 
     for sample_name, kwargs in tqdm.tqdm(
@@ -355,58 +360,58 @@ def main():
     ):
         run_visualization(sample_name=sample_name, **kwargs)
 
-    # ----------------- SIMULATION DATA (no noise)----------------- #
-    SIM_SAMPLE_DIR = "/home/cfoley/SpectralDefocusCam/visualization/results"
-    samples = _get_sim_samples_from_directory(
-        SIM_SAMPLE_DIR, spectral_range=(360, 660), gamma=0.53
-    )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
-        run_visualization(sample_name=sample_name, **kwargs)
+    # # ----------------- SIMULATION DATA (no noise)----------------- #
+    # SIM_SAMPLE_DIR = "/home/cfoley/SpectralDefocusCam/visualization/results"
+    # samples = _get_sim_samples_from_directory(
+    #     SIM_SAMPLE_DIR, spectral_range=(360, 660), gamma=0.53
+    # )
+    # for sample_name, kwargs in tqdm.tqdm(
+    #     samples.items(), desc="Running simulation vis..."
+    # ):
+    #     run_visualization(sample_name=sample_name, **kwargs)
 
-    # ----------------- SIMULATION DATA (noised)----------------- #
-    LOW_NOISE_SIM_SAMPLE_DIR = (
-        "/home/cfoley/SpectralDefocusCam/visualization/results/low_noise"
-    )
-    samples = _get_sim_samples_from_directory(
-        LOW_NOISE_SIM_SAMPLE_DIR,
-        spectral_range=(360, 660),
-        gamma=0.53,
-        out_dir=os.path.join(OUT_DIR, "low_noise"),
-    )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
-        run_visualization(sample_name=sample_name, **kwargs)
+    # # ----------------- SIMULATION DATA (noised)----------------- #
+    # LOW_NOISE_SIM_SAMPLE_DIR = (
+    #     "/home/cfoley/SpectralDefocusCam/visualization/results/low_noise"
+    # )
+    # samples = _get_sim_samples_from_directory(
+    #     LOW_NOISE_SIM_SAMPLE_DIR,
+    #     spectral_range=(360, 660),
+    #     gamma=0.53,
+    #     out_dir=os.path.join(OUT_DIR, "low_noise"),
+    # )
+    # for sample_name, kwargs in tqdm.tqdm(
+    #     samples.items(), desc="Running simulation vis..."
+    # ):
+    #     run_visualization(sample_name=sample_name, **kwargs)
 
-    MED_NOISE_SIM_SAMPLE_DIR = (
-        "/home/cfoley/SpectralDefocusCam/visualization/results/medium_noise"
-    )
-    samples = _get_sim_samples_from_directory(
-        MED_NOISE_SIM_SAMPLE_DIR,
-        spectral_range=(360, 660),
-        gamma=0.53,
-        out_dir=os.path.join(OUT_DIR, "medium_noise"),
-    )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
-        run_visualization(sample_name=sample_name, **kwargs)
+    # MED_NOISE_SIM_SAMPLE_DIR = (
+    #     "/home/cfoley/SpectralDefocusCam/visualization/results/medium_noise"
+    # )
+    # samples = _get_sim_samples_from_directory(
+    #     MED_NOISE_SIM_SAMPLE_DIR,
+    #     spectral_range=(360, 660),
+    #     gamma=0.53,
+    #     out_dir=os.path.join(OUT_DIR, "medium_noise"),
+    # )
+    # for sample_name, kwargs in tqdm.tqdm(
+    #     samples.items(), desc="Running simulation vis..."
+    # ):
+    #     run_visualization(sample_name=sample_name, **kwargs)
 
-    HIGH_NOISE_SIM_SAMPLE_DIR = (
-        "/home/cfoley/SpectralDefocusCam/visualization/results/high_noise"
-    )
-    samples = _get_sim_samples_from_directory(
-        HIGH_NOISE_SIM_SAMPLE_DIR,
-        spectral_range=(360, 660),
-        gamma=0.53,
-        out_dir=os.path.join(OUT_DIR, "high_noise"),
-    )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
-        run_visualization(sample_name=sample_name, **kwargs)
+    # HIGH_NOISE_SIM_SAMPLE_DIR = (
+    #     "/home/cfoley/SpectralDefocusCam/visualization/results/high_noise"
+    # )
+    # samples = _get_sim_samples_from_directory(
+    #     HIGH_NOISE_SIM_SAMPLE_DIR,
+    #     spectral_range=(360, 660),
+    #     gamma=0.53,
+    #     out_dir=os.path.join(OUT_DIR, "high_noise"),
+    # )
+    # for sample_name, kwargs in tqdm.tqdm(
+    #     samples.items(), desc="Running simulation vis..."
+    # ):
+    #     run_visualization(sample_name=sample_name, **kwargs)
 
 
 if __name__ == "__main__":
