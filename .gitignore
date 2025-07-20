@@ -10,8 +10,12 @@ __pycache__/*
 *.npy
 */*.npy
 
-studies/*/outputs/
-studies/*/data/
-studies/data
-wandb
-studies/wandb
+defocuscam/studies/*/outputs/
+defocuscam/studies/*/data/
+defocuscam/studies/data
+defocuscam/wandb/
+defocuscam/studies/wandb/
+
+*.egg-info
+
+__*
