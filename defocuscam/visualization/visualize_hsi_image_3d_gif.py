@@ -348,6 +348,11 @@ def main():
             "spectral_range": (398, 862),
             "gamma": 0.5,
         },
+        "outside_3_author": {
+            "sample_path": "/home/cfoley/SpectralDefocusCam/studies/experimental_results/outputs/saved_model_ep49_testloss_0.05782177185882693_outside_three.npy",
+            "spectral_range": (398, 862),
+            "gamma": 0.5,
+        },
     }
 
     for sample_name, kwargs in tqdm.tqdm(

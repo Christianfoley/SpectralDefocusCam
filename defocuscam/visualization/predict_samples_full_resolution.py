@@ -216,9 +216,9 @@ def main():
 
     # Move to a noise value where fista demonstrated considerable decline, but the
     # learned model does not
-    medium_read_noise = 5e-3
+    medium_read_noise = 1e-2
     medium_shot_noise = 5e3
-    medium_calibration_noise = 5e-3
+    medium_calibration_noise = 1e-2
     learned_model.model1.read_noise_intensity = medium_read_noise
     learned_model.model1.shot_noise_photon_count = medium_shot_noise
     learned_model.model1.mask_noise_intensity = medium_calibration_noise
