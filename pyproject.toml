@@ -1,12 +1,37 @@
 [project]
-name = "myproject"
-version = "0.1"
-dependencies = []
+name = "spectral-defocuscam"
+version = "0.1.0"
+description = "Spectral Defocus Camera official implementation"
+requires-python = ">=3.8"
+dependencies = [
+    "matplotlib>=3.3.4",
+    "numpy<=2.0.0",
+    "Pillow>=9.2.0",
+    "scikit-image>=0.18.1",
+    "scipy>=1.6.2",
+    "colour-science>=0.1.5",
+    "gdown",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "cupy==11.1.0",
+    "torch>=1.12.1",
+    "torchvision>=0.13.1",
+]
+cpu = [
+    "torch>=1.12.1",
+    "torchvision>=0.13.1",
+]
+unpublished = [
+    "rdmpy @ git+https://github.com/apsk14/rdmpy.git",
+]
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["models", "dataset", "studies", "utils"]
-exclude = ["notebooks", "data", "config_files"]
+where = ["."]
+include = ["defocuscam*"]
+exclude = ["notebooks*", "data*", "configs*"]
