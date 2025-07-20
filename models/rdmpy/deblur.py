@@ -20,6 +20,7 @@ def ring_deconvolve(
     tv_reg=1e-9,
     l2_reg=1e-9,
     opt_params={},
+    use_batch_conv=False,
     process=True,
     verbose=True,
     device=torch.device("cpu"),
@@ -46,6 +47,9 @@ def ring_deconvolve(
     opt_params : dict, optional
         The optimization/regularization parameters to use for deconvolution.
         See `opt.py` for details.
+
+    use_batch_conv : bool, optional
+        Whether to use batched or unbatched lri convolution. The default is False.
 
     process : bool, optional
         Whether to process the image before deconvolution. Default is True.
@@ -92,9 +96,10 @@ def ring_deconvolve(
 
     recon = opt.image_recon(
         image.to(device).float(),
-        psf_roft,
+        psf_roft.to(device),
         model="lri",
         opt_params=def_opt_params,
+        use_batch_conv=use_batch_conv,
         device=device,
         verbose=verbose,
     )

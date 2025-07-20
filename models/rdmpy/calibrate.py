@@ -8,7 +8,7 @@ from ._src import opt, seidel, util, polar_transform
 import pdb
 import gc
 
-import utils.psf_calibration_utils as psf_utils
+import utils.psf_utils as psf_utils
 
 
 def calibrate_stack(

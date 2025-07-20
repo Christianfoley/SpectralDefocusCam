@@ -235,7 +235,7 @@ def polar2img(
         Cartesian image, will be imageSize
 
     """
-    imageSize = (img.shape[-1], img.shape[-1])
+
     if center is None:
         center = ((imageSize[-2] - 1) / 2.0, (imageSize[-1] - 1) / 2.0)
 

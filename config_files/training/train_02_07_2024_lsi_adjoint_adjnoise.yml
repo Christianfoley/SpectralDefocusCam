@@ -1,0 +1,66 @@
+# example config for training
+
+# data paths
+checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
+psf_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
+base_data_path: "/home/cfoley_waller/10tb_extension/defocam/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_adjnoise"
+mask_dir: "/home/cfoley_waller/defocam/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_11_10_2023_2_preprocessed/calibration_matrix_450-810_30chan_stride12_avg12.mat"
+
+# model params
+device: 1
+data_precomputed: True
+forward_model_params:
+  stack_depth: 5
+  psf:
+    lri: False
+    stride: 1
+    symmetric: True
+    optimize: False
+    padded_shape: 768 #only used if LRI is False
+    largest_psf_diam: 128
+    exposures: [0.00151, 0.00909, 0.02222, 0.03333, 0.04761] # exposures of eahc psf level
+  operations:
+    sim_blur: False
+    sim_meas: True
+    adjoint: True
+    spectral_pad: True
+    adj_mask_noise: True
+  mask_noise:
+    intensity: [0.0, 0.05]
+    stopband_only: True
+    type: "gaussian"
+  
+recon_model_params:
+  model_name: "unet" # "r2attunet"
+
+# training params
+epochs: 500
+batch_size: 2
+patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
+patch_crop: [768, 768] # actual size on camera
+image_center: [1000, 2000] # center of both the image and mask crops
+num_workers: 6
+data_partition: [0.7, 0.15, 0.15] #["fruit", "pavia", "harvard"] # train, val, test
+early_stopping_patience: 50
+loss_function: 
+  name: "mse" # mse, mae, cossim, lpips, psnr, ssim
+  params: 
+optimizer: 
+  name: "adam" # adam, sgd, adagrad, rmsprop
+  params: # kwargs
+    lr: 0.0002
+    # weight_decay: 0.001
+lr_scheduler: 
+  name: "exponential" # warm_cosine_anneal, exponential, plateau
+  params: 
+    gamma: 0.98
+
+# restarting from checkpoint
+preload_weights: False
+checkpoint_dir: ""
+offset: 0
+
+# other params
+log_grads: False
+validation_stride: 3
+checkpoint_stride: 9

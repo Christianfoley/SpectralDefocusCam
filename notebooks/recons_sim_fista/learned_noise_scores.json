@@ -1,0 +1,26 @@
+{
+    "noise_1e-2": {
+        "mse": NaN,
+        "cossim": NaN,
+        "psnr": NaN,
+        "ssim": NaN
+    },
+    "noise_1e-3": {
+        "mse": NaN,
+        "cossim": NaN,
+        "psnr": NaN,
+        "ssim": NaN
+    },
+    "noise_1e-4": {
+        "mse": NaN,
+        "cossim": NaN,
+        "psnr": NaN,
+        "ssim": NaN
+    },
+    "noise_1e-5": {
+        "mse": NaN,
+        "cossim": NaN,
+        "psnr": NaN,
+        "ssim": NaN
+    }
+}

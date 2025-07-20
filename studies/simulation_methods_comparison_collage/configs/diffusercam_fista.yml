@@ -1,0 +1,59 @@
+# ------------------------------------------ #
+# -------------- DO NOT CHANGE ------------- #
+# -- STATIC CONFIG FOR FIGURE GENERATION --- #
+# ------------------------------------------ #
+
+# data paths
+psf_dir: "/home/emarkley/Workspace/PYTHON/SpectralDefocusCam/notebooks/eric_simulation_studies/diffuser_psfs"
+base_data_path: "/home/cfoley/defocuscamdata/recons/model_ablation_test_set"
+save_recon_path: "/home/cfoley/defocuscamdata/recons/sim_comparison_figure/diffuser_recons"
+mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+
+# model params
+device: 2
+data_precomputed: False
+forward_model_params:
+  stack_depth: 1
+  psf:
+    lri: False
+    stride: 1
+    symmetric: True
+    optimize: False
+    padded_shape: [420, 620] # only used if LRI is False
+    largest_psf_diam: 256
+    exposures: [0.00151,0.00909,0.022222,0.03333,0.04761] # exposures of eahc psf level
+    threshold: 0.55 # noise threshold
+    #norm: one # applies normalization to each psf ("one": L1, "two": L2)
+  operations:
+    sim_blur: False
+    sim_meas: True
+    adjoint: False
+    spectral_pad: False
+    load_npy_psfs: True
+    fwd_mask_noise: true
+    shot_noise: true
+    read_noise: true
+  mask_noise:
+    type: gaussian
+    intensity: 0.001 # STD of gaussian calibration noise (we expect much more than sample)
+  sample_noise:
+    intensity: 0.001 # STD of gaussian read noise
+    photon_count: 10000 # photon count for shot noise
+
+recon_model_params:
+  model_name: "fista"
+  iters: 351
+  prox_method: "tv"
+  tv_lambda: 1.301
+  tv_lambdaw: 0.1
+  tv_lambdax: 0.66
+  print_every: 100
+  plot: True
+  
+# training params
+batch_size: 1
+patch_size: [420, 620] # inference & training size (NOTE: downsampling reduces filter precision)
+patch_crop: [420, 620] # actual size on camera
+image_center: [1200, 1970] # center of both the image and mask crops
+num_workers: 6
+data_partition: [0.7, 0.15, 0.15] #["fruit", "pavia", "harvard"] # train, val, test

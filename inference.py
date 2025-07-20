@@ -6,8 +6,8 @@ from pathlib import Path
 
 from utils.diffuser_utils import *
 import utils.helper_functions as helper
-import utils.metrics as metrics
-import data_utils.dataset as ds
+import utils.metric_utils as metric_utils
+import dataset.dataset as ds
 import models.ensemble as ensemble
 import models.forward as fm
 
@@ -49,7 +49,7 @@ def get_model_pretrained(weights, train_config, device):
 
     # reconstruction model
     recon_model = Unet3d.Unet(n_channel_in=train_config["stack_depth"], n_channel_out=1)
-    model = ensemble.MyEnsemble(forward_model.to(device), recon_model.to(device))
+    model = ensemble.SSLSimulationModel(forward_model.to(device), recon_model.to(device))
 
     model.load_state_dict(torch.load(weights, map_location=torch.device(device)))
     model.eval()
@@ -86,7 +86,7 @@ def run_inference(model, dataloader, save_folder, device, metric=None):
         sample = sample.detach().cpu().numpy()[0]
         simulated = model.model1.sim_meas.detach().cpu().numpy()[0]
         if metric:
-            score = metrics.get_score(metric, pred, sample)
+            score = metric_utils.get_score(metric, pred, sample)
 
         scipy.io.savemat(
             os.path.join(save_folder, f"{i}_{metric}{score:.5f}.mat"),

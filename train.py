@@ -7,6 +7,10 @@ import matplotlib.pyplot as plt
 import scipy.io
 import os
 
+import sys
+
+sys.path.append("..")
+
 from torch.utils.tensorboard import SummaryWriter
 
 from utils.diffuser_utils import *
@@ -14,91 +18,14 @@ import utils.early_stop_utils as stopping
 import utils.helper_functions as helper
 import utils.optimizer_utils as optim_utils
 
-import data_utils.dataset as ds
-import data_utils.precomp_dataset as pre_ds
-import models.ensemble as ensemble
-import models.forward as fm
-import sys
+import dataset.dataset as ds
+import dataset.precomp_dataset as pre_ds
+from models.get_model import get_model
 
-sys.path.append("..")
-
-import models.Unet.unet3d as Unet3d
-import models.Unet.R2attunet as R2attunet3d
-import models.LCNF.liif as liif
-import models.fista.fista_spectral_cupy_batch as fista
 
 # don't delete: registering
 import models.LCNF.edsr
 import models.LCNF.mlp
-
-
-def get_model(config, device):
-    """
-    Constructs a model from the given forward and recon model params. If data_precomputed
-    is true, forward model will be "passthrough".
-
-    Parameters
-    ----------
-    config : dict
-        config dictionary with model hyperparams
-    device : torch.Device
-        device to place models on
-
-    Returns
-    -------
-    torch.nn.Module
-        "ensemble" wrapper model for forward and recon models
-    """
-    fm_params = config["forward_model_params"]
-    rm_params = config["recon_model_params"]
-    rm_params["num_measurements"] = fm_params["stack_depth"]
-    rm_params["blur_stride"] = fm_params["psf"]["stride"]
-
-    # forward model
-    mask = load_mask(
-        path=config["mask_dir"],
-        patch_crop_center=config["image_center"],
-        patch_crop_size=config["patch_crop"],
-        patch_size=config["patch_size"],
-    )
-    forward_model = fm.ForwardModel(
-        mask,
-        params=fm_params,
-        psf_dir=config["psf_dir"],
-        passthrough=config["data_precomputed"],
-        device=device,
-    )
-    forward_model.init_psfs()
-
-    # recon model
-    if rm_params["model_name"] == "fista":
-        recon_model = fista.fista_spectral_numpy(
-            forward_model.psfs, torch.tensor(mask), params=rm_params, device=device
-        )
-    elif rm_params["model_name"] == "unet":
-        recon_model = Unet3d.Unet(n_channel_in=rm_params["num_measurements"])
-    elif rm_params["model_name"] == "r2attunet":
-        recon_model = R2attunet3d.R2AttUnet(
-            in_ch=rm_params["num_measurements"],
-            t=rm_params.get("recurrence_t", 2),
-        )
-    elif rm_params["model_name"] == "lcnf":
-        encoder_specs = [rm_params["encoder_specs"]] * rm_params["num_measurements"]
-        recon_model = liif.LIIF(
-            encoder_specs,
-            rm_params["imnet_spec"],
-            rm_params["enhancements"],
-        )
-
-    # build ensemble and load any pretrained weights
-    full_model = ensemble.MyEnsemble(forward_model, recon_model)
-
-    if config.get("preload_weights", False):
-        full_model.load_state_dict(
-            torch.load(config["checkpoint_dir"], map_location="cpu")
-        )
-
-    return full_model.to(device)
 
 
 def get_save_folder(config):
@@ -151,20 +78,28 @@ def evaluate(model, dataloader, loss_function, device):
         tuple of the validation set loss, and an example input and prediction
     """
     model.eval()
+    torch.cuda.empty_cache()
+
     val_loss = 0
-    for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
-        output = model(sample["input"].to(device))
-        loss = loss_function(output, sample["image"].to(device))
-        val_loss += loss.item()
+    with torch.no_grad():
+        for sample in tqdm.tqdm(dataloader, desc="validating", leave=0):
+            output = model(sample["input"].to(device))
+            loss = loss_function(output, sample["image"].to(device))
+            val_loss += loss.item()
+
+            if isinstance(output, torch.Tensor):
+                trace = output.detach().cpu().numpy()
+            else:
+                trace = output[0].detach().cpu().numpy()
+            del output
 
     val_loss = val_loss / dataloader.__len__()
 
     gt_np = sample["image"].detach().cpu().numpy()[0]
     in_np = sample["input"].detach().cpu().numpy()[0]
-    recon_np = output.detach().cpu().numpy()[0]
 
     model.train()
-    return val_loss, in_np, recon_np, gt_np
+    return val_loss, in_np, trace, gt_np
 
 
 def generate_plot(model_input, recon, gt):
@@ -196,11 +131,16 @@ def generate_plot(model_input, recon, gt):
     while len(gt.shape) > 3:
         gt = gt[0]
 
-    input_fc = helper.stack_rgb_opt_30(model_input.transpose(1, 2, 0))
+    if model_input.shape[0] > 1:
+        input_fc = helper.stack_rgb_opt_30(model_input.transpose(1, 2, 0))
+        input_fc = helper.value_norm(input_fc)
+    else:
+        input_fc = model_input[0]
+
     pred_fc = helper.stack_rgb_opt_30(recon.transpose(1, 2, 0))
-    samp_fc = helper.stack_rgb_opt_30(gt.transpose(1, 2, 0))
-    input_fc = helper.value_norm(input_fc)
     pred_fc = helper.value_norm(pred_fc)
+
+    samp_fc = helper.stack_rgb_opt_30(gt.transpose(1, 2, 0))
     samp_fc = helper.value_norm(samp_fc)
 
     ax[0].imshow(input_fc, vmax=np.percentile(input_fc, 95))
@@ -268,15 +208,20 @@ def run_training(
     )
     writer = SummaryWriter(log_dir=save_folder)
     helper.write_yaml(config, os.path.join(save_folder, "training_config.yml"))
+    accum_steps = config.get("grad_accumulate", 1)
 
     print(f"Readtime: {train_dataloader.dataset.readtime}")
+    total_updates = 0
     w_list = []
     val_loss_list = []
     train_loss_list = []
-    logged_graph = False
-    for i in tqdm.tqdm(range(config["epochs"]), desc="Epochs", position=0):
+    logged_graph = config.get("no_graph", False)
+    for i in tqdm.tqdm(
+        range(config["epochs"] - config.get("offset", 0)), desc="Epochs", position=0
+    ):
         dl_time, inf_time, prop_time, train_loss = 0, 0, 0, 0
         mark = time.time()
+        idx = 0
         for sample in tqdm.tqdm(train_dataloader, desc="iters", position=1, leave=0):
             dl_time += time.time() - mark
             mark = time.time()
@@ -294,8 +239,10 @@ def run_training(
 
             # Update the model
             loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
+            if ((idx + 1) % accum_steps == 0) or (idx + 1 == len(train_dataloader)):
+                optimizer.step()
+                optimizer.zero_grad()
+                total_updates += 1
 
             # Enforce a physical constraint on the blur parameters
             if model.model1.psf["optimize"]:
@@ -306,6 +253,32 @@ def run_training(
             mark = time.time()
             del y
             del x
+            del output
+            idx += 1
+
+            # running mid-epoch validation
+            # if idx % 500 == 0:
+            #     val_loss, input_np, recon_np, ground_truth_np = evaluate(
+            #         model, val_dataloader, loss_function, device=device
+            #     )
+            #     val_loss_list.append(val_loss)
+            #     train_loss = train_loss / idx
+            #     writer.add_scalar("train loss", val_loss, global_step=total_updates)
+            #     writer.add_scalar(
+            #         "validation loss", val_loss_list[-1], global_step=total_updates
+            #     )
+            #     writer.add_scalar(
+            #         "learning rate",
+            #         optim_utils.get_lr(optimizer),
+            #         global_step=total_updates,
+            #     )
+            #     print(
+            #         f"\nEpoch ({i} {idx}) losses  (train, val) : ({train_loss}, {val_loss})"
+            #     )
+
+            #     if plot:
+            #         fig = generate_plot(input_np, recon_np, ground_truth_np)
+            #         writer.add_figure(f"epoch_{i}_{idx}_fig", fig)
 
         lr_scheduler.step()
 
@@ -341,9 +314,13 @@ def run_training(
         print(f"{inf_time:.2f}s, Backprop Time: {prop_time:.2f}s\n")
 
         # log to tensorboard
-        writer.add_scalar("train loss", train_loss_list[-1], global_step=i)
-        writer.add_scalar("validation loss", val_loss_list[-1], global_step=i)
-        writer.add_scalar("learning rate", optim_utils.get_lr(optimizer), global_step=i)
+        writer.add_scalar("train loss", train_loss_list[-1], global_step=total_updates)
+        writer.add_scalar(
+            "validation loss", val_loss_list[-1], global_step=total_updates
+        )
+        writer.add_scalar(
+            "learning rate", optim_utils.get_lr(optimizer), global_step=total_updates
+        )
         if not logged_graph:
             writer.add_graph(model, sample["input"].to(device), verbose=False)
             logged_graph = True

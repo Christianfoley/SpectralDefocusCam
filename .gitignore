@@ -7,4 +7,11 @@
 __pycache__/*
 */__pycache__
 
-_*
+*.npy
+*/*.npy
+
+studies/*/outputs/
+studies/*/data/
+studies/data
+wandb
+studies/wandb

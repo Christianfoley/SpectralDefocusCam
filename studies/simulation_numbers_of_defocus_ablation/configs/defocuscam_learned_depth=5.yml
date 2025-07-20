@@ -1,0 +1,85 @@
+# ------------------------------------------ #
+# -------------- DO NOT CHANGE ------------- #
+# -- STATIC CONFIG FOR FIGURE GENERATION --- #
+# ------------------------------------------ #
+
+# data paths
+checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_firstlastonly_L1psf_5meas_nomasknoise.yml/2024_03_22_03_36_09/saved_model_ep78_testloss_0.041193413242855866.pt"
+config_fname: "/home/cfoley/SpectralDefocusCam/config_files/cond_unet_ablation/train_02_07_2024_lsi_adjoint_condunet_firstlastonly_L1psf_3meas.yml"
+base_data_path: "/home/cfoley/SpectralDefocusCam/studies/data/test_set_small"
+psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
+mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_L1_390-870_30chan_stride16_avg16.mat"
+save_recon_path: "/home/cfoley/SpectralDefocusCam/studies/simulation_numbers_of_defocus_ablation/outputs/defocuscam_learned/"
+
+# model params
+device: 0
+data_precomputed: false
+forward_model_params:
+  stack_depth: 5
+  psf:
+    lri: false
+    stride: 1
+    symmetric: true
+    optimize: false
+    padded_shape: [768, 768]
+    largest_psf_diam: 128
+    exposures: [0.00151,0.00909,0.022222,0.03333,0.04761]
+    threshold: 0.55
+    norm: one
+  operations:
+    sim_blur: false
+    sim_meas: true
+    adjoint: false # conditional unets have the adjoint operation built in
+    spectral_pad: false
+    adj_mask_noise: false
+    fwd_mask_noise: true
+    shot_noise: true
+    read_noise: true
+  mask_noise:
+    type: gaussian
+    intensity: 0.001 # STD of gaussian calibration noise (we expect much more than sample)
+  sample_noise:
+    intensity: 0.001 # STD of gaussian read noise
+    photon_count: 10000 # photon count for shot noise
+
+recon_model_params:
+  model_name: "unet_conditioned"
+  condition_first_last: True
+  norm: local_response
+
+# training params
+epochs: 100
+batch_size: 3
+grad_accumulate: 4
+patch_size: [256, 256]
+patch_crop: [768, 768]
+image_center: [1000, 2000]
+num_workers: 6
+data_partition: [0.7, 0.15, 0.15]
+early_stopping_patience: 50
+
+loss_function:
+  name: "mse"
+  params:
+
+optimizer:
+  name: "adam"
+  params:
+    lr: 1.5e-5
+    weight_decay: 0.001
+
+lr_scheduler:
+  name: "exponential"
+  params:
+    gamma: 0.94
+
+# restarting from checkpoint
+preload_weights: true
+checkpoint_stride: 1
+validation_stride: 1
+offset: 50
+
+# other params
+log_grads: false
+no_graph: true
+passthrough: false

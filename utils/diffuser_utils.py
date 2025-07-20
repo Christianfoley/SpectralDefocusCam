@@ -5,25 +5,16 @@ import torch
 import torch.optim
 import scipy.io
 import cv2
+from scipy.ndimage import generic_filter
+
 import models.rdmpy.blur as blur
 
-
-def interleave3d(t, spec_dim=2):  # takes 1,2,2,x,a,a returns 1,2,2x,a,a
-    assert spec_dim > 0  # we need 0th dimension to be the blurs
-    spec_dim = spec_dim - 1
-    batchsize = len(t)
-    outlist = []
-    for i in range(batchsize):
-        ab = t[i]
-        stacked = torch.stack([ab[0], ab[1]], dim=spec_dim)
-        interleaved = torch.flatten(stacked, start_dim=spec_dim - 1, end_dim=spec_dim)
-        outlist.append(interleaved)
-    return torch.stack(outlist)
+import matplotlib.pyplot as plt
 
 
 def fft_psf(model, h):
     h_complex = pad_zeros_torch(model, torch.complex(h, torch.zeros_like(h)))
-    H = torch.fft.fft2(torch.fft.ifftshift(h_complex)).unsqueeze(1)
+    H = torch.fft.fft2(torch.fft.ifftshift(h_complex, dim=(-1, -2))).unsqueeze(1)
     return H
 
 
@@ -33,15 +24,85 @@ def fft_im(im):
     return Xi
 
 
-def tt(x, device="cuda:0"):
-    return torch.tensor(x, dtype=torch.float32, device=device)
+def quantize(img, bins=256):
+    maxfn = torch.max
+    if isinstance(img, np.ndarray):
+        maxfn = np.max
+    img = floor_div((img / (maxfn(img) + 2.2e-15)) * (bins - 1), 1)
+    return img
+
+
+def floor_div(input, K):
+    rem = torch.remainder(input, K)
+    out = (input - rem) / K
+    return out
 
 
 def pyramid_down(image, out_shape):
+    """
+    Pyramid (gaussian binned) downsampling
+    """
     if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
         return image
-    closest_pyr = cv2.pyrDown(image, (image.shape[0] // 2, image.shape[1] // 2))
-    return cv2.resize(closest_pyr, out_shape, interpolation=cv2.INTER_AREA)
+    closest_pyr = cv2.pyrDown(image, (image.shape[1] // 2, image.shape[0] // 2))
+    return cv2.resize(
+        closest_pyr, (out_shape[1], out_shape[0]), interpolation=cv2.INTER_AREA
+    )
+
+
+def binning_down(image, out_shape):
+    """
+    Binned downsampling
+    """
+    if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
+        return image
+    else:
+        assert image.shape[0] % out_shape[0] == 0, "crop & patch dims must be multiples"
+        assert image.shape[1] % out_shape[1] == 0, "crop & patch dims must be multiples"
+
+    assert (
+        image.shape[0] // out_shape[0] == image.shape[1] // out_shape[1]
+    ), "binned downsample rate must be equivalent in both dimensions"
+
+    ksize = (image.shape[0] // out_shape[0], image.shape[1] // out_shape[1])
+    avgpool = torch.nn.AvgPool2d(ksize)
+
+    return avgpool(torch.tensor(image[None, None, ...])).numpy()[0, 0]
+
+
+def replace_outlier_with_local_median(
+    meas, neighborhood_size=3, n_stds=4, high_outliers_only=False
+):
+    """
+    Utility function for cleaning up outlier pixels in an image.
+    Replaces pixels > n_stds standard deviations from global mean with their local median.
+
+    Parameters
+    ----------
+    meas : np.ndarray
+        2d input image (y,x).
+    neighborhood_size : int
+       size of local neighborhood in pixels, by default 3
+    n_stds : float, 4
+        number of stds from mean to classify as outlier
+
+    Returns
+    -------
+    np.ndarray
+        The cleaned 2D array with outliers replaced by the mean of their neighboring pixels.
+        This array will have the same shape and type as the input 'meas' array.
+    """
+    mean, std = np.mean(meas), np.std(meas)
+
+    def local_func(neighborhood):
+        center = neighborhood[len(neighborhood) // 2]  # nbrhood=unrolled 2d window
+        delta = center - mean if high_outliers_only else np.abs(center - mean)
+        if delta > (n_stds * std) + mean:
+            return np.median([n for n in neighborhood if n != center])
+        return center
+
+    footprint = np.ones((neighborhood_size, neighborhood_size))
+    return generic_filter(meas, local_func, footprint=footprint, mode="nearest")
 
 
 def img_interp1d(samples, vals, newvals, verbose=False, force_range_overlap=True):
@@ -169,6 +230,102 @@ def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
     return batch
 
 
+def preprocess_meas(
+    meas, center, crop_size, dim, outlier_std_threshold=2.5, defective_pixels=[]
+):
+    """
+    Preprocesses experimental measurements by cropping, normalizing, removing outlier
+    and defective pixels, and zeroing
+
+    Parameters
+    ----------
+    meas : np.ndarray
+        2d experimental measurement
+    center : tuple
+        coordinates of the image center
+    crop_size : tuple
+        size of image in y and x
+    dim : tuple
+        output size of image in y and x
+    outlier_std_threshold : float, optional
+        number of stds away from median defining an outlier pixel, by default 2.5
+    defective_pixels : list, optional
+        list of coorinates of defective pixels, by default []
+
+    Returns
+    -------
+    np.ndarray
+        processed measurement patch
+    """
+    # crop
+    crop = lambda im: im[
+        center[0] - crop_size[0] // 2 : center[0] + crop_size[0] // 2,
+        center[1] - crop_size[1] // 2 : center[1] + crop_size[1] // 2,
+    ]
+    meas = crop(meas)
+
+    # pixels outside (outlier_std_threshold) * img std are outliers
+    meas = replace_outlier_with_local_median(
+        meas, n_stds=outlier_std_threshold, high_outliers_only=True
+    )
+
+    if defective_pixels:
+        meas[defective_pixels] = 0
+
+    # downsample
+    meas = pyramid_down(meas, dim)
+
+    # normalize
+    one_norm = lambda im: (im - np.min(im)) / np.max(im - np.min(im))
+    meas = one_norm(meas)
+
+    return meas
+
+
+def power_norm_mask(mask, start, end, norm_file="", norm_section=None):
+    """
+    Normalizes mask according to csv file power values.
+    (rows of wavelength, power) where power is within the range (0,1)
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        HS data cube (L,Y,X)
+    start : int
+        beginning wavelength of mask (in nm)
+    end : int
+        ending wavelength of mask (in nm)
+    norm_file : str, optional
+        path to normalization csv file, if None will normalize by average
+        power over non-filtered section
+
+    Returns
+    -------
+    np.ndarray
+        Mask scaled by its power value
+    """
+    if norm_file:
+        norm_data = np.genfromtxt(norm_file, delimiter=",")
+        power_wavs, power = norm_data[1:, 0], norm_data[1:, 1]
+
+    mask = np.copy(mask).astype(np.float32)
+    wavs = np.linspace(start, end, mask.shape[0])
+
+    ns = norm_section
+    scales = np.mean(mask[:, ns[0] : ns[1], ns[2] : ns[3]], axis=(-1, -2))
+    scales / np.max(scales)
+    print(scales)
+    for i in range(mask.shape[0]):
+        # scale by closest value in the power spectrum
+        if norm_file:
+            scale = power[np.argmin(np.abs(power_wavs - wavs[i]))]
+        else:
+            scale = scales[i]
+        mask[i] = (1 / scale) * mask[i]
+
+    return mask
+
+
 def mov_avg_mask(cube, waves, start, end, step=8, width=8):
     """
     Averages hyperspectral data cube across spectral channels with a
@@ -202,9 +359,20 @@ def mov_avg_mask(cube, waves, start, end, step=8, width=8):
     actual_new_waves = np.zeros_like(new_waves)
     for i, wave in enumerate(new_waves):
         idx = np.where(waves == wave)[0][0]
-        lp_cube[i] = np.mean(cube[idx - idx_width // 2 : idx + idx_width // 2 + 1], 0)
+        lp_cube[i] = np.mean(
+            cube[
+                max(0, idx - idx_width // 2) : min(
+                    idx + idx_width // 2 + 1, len(waves) - 1
+                )
+            ],
+            0,
+        )
         actual_new_waves[i] = np.mean(
-            waves[idx - idx_width // 2 : idx + idx_width // 2 + 1]
+            waves[
+                max(0, idx - idx_width // 2) : min(
+                    idx + idx_width // 2 + 1, len(waves) - 1
+                )
+            ]
         )
 
     # safety check that the given wavelengths apply to the data cube
@@ -216,14 +384,35 @@ def mov_avg_mask(cube, waves, start, end, step=8, width=8):
 
 
 def load_mask(
-    path="/home/cfoley_waller/defocam/defocuscamdata/calibration_data/calibration.mat",
+    path,
     patch_crop_center=[1050, 2023],  # [200, 2100],
     patch_crop_size=[768, 768],
     patch_size=[256, 256],
     old_calibration=False,
     sum_chans_2=False,
+    downsample="binned",
 ):
+    """
+    Loads mask from saved .mat path
+
+    Parameters
+    ----------
+    path : str
+        path to spectral filter calibration mask
+    patch_crop_center : list, optional
+        center (in xy) of usable section, by default [1050, 2023]
+    patch_crop_size : list, optional
+        size (in xy) of usable section, by default [768, 768]
+    patch_size : list, optional
+        final/downsampled size (in xy) of usable seciton, by default [256, 256]
+
+    Returns
+    -------
+    np.ndarray
+        3d spectral filter calibration matrix
+    """
     spectral_mask = scipy.io.loadmat(path)
+    nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
     dims = (
         patch_crop_center[0] - patch_crop_size[0] // 2,
         patch_crop_center[0] + patch_crop_size[0] // 2,
@@ -243,15 +432,23 @@ def load_mask(
             mask2 = mask[..., 1::2]
             mask = (mask1 + mask2)[..., 0:30]
 
-        # downsample & normalize
-        nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
-        mask = nm(
-            np.stack(
-                [pyramid_down(mask[..., i], patch_size) for i in range(mask.shape[-1])],
-                axis=-1,
-            )
+        # mask = mask / np.sum(
+        #     mask, axis=-1, keepdims=True
+        # )  # L1-norm each filter transmission
+
+        # downsample & global normalize
+        ds = binning_down if downsample == "binned" else pyramid_down
+        mask = np.stack(
+            [ds(mask[..., i], patch_size) for i in range(mask.shape[-1])],
+            axis=-1,
         )
-    return mask
+
+        # # clean bad pixels
+        for i in tqdm.tqdm(list(range(mask.shape[-1])), desc="cleaning outliers"):
+            mask[..., i] = replace_outlier_with_local_median(mask[..., i], 11, 7, True)
+
+        nm = lambda x: (x - np.min(x)) / (np.max(x - np.min(x)))
+    return nm(mask)
 
 
 def process_mat_files(input_directory, output_directory, overwrite=True):
@@ -313,6 +510,25 @@ def flip_channels(image):
     image_color[:, :, 1] = image[:, :, 1]
     image_color[:, :, 2] = image[:, :, 0]
     return image_color
+
+
+def pad_yx_to_multiple(x, multiple=32, ret_padding=False):
+    y_new = ((x.shape[-2] - 1) // multiple + 1) * multiple
+    x_new = ((x.shape[-1] - 1) // multiple + 1) * multiple
+
+    # If odd, this biases bottom & right padding to get the extra row/col.
+    y_pad_top = (y_new - x.shape[-2]) // 2
+    y_pad_bottom = y_new - x.shape[-2] - y_pad_top
+    x_pad_left = (x_new - x.shape[-1]) // 2
+    x_pad_right = x_new - x.shape[-1] - x_pad_left
+    padding = (x_pad_left, x_pad_right, y_pad_top, y_pad_bottom)
+
+    padded_x = F.pad(x, padding, mode="constant", value=0)
+
+    if ret_padding:
+        return padded_x, (x_pad_left, x_pad_right, y_pad_top, y_pad_bottom)
+
+    return padded_x
 
 
 def pad_zeros_torch(model, x):

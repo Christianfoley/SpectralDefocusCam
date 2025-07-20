@@ -1,0 +1,49 @@
+# ------------------------------------------ #
+# -------------- DO NOT CHANGE ------------- #
+# ---- STATIC CONFIG FOR ABLATION STUDY ---- #
+# ------------------------------------------ #
+
+# data paths
+checkpoints_dir: "/home/cfoley/defocuscamdata/models"
+psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
+base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_lsi_02_07_L1psf_5meas"
+mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+
+# model params
+device: 2
+data_precomputed: False
+forward_model_params:
+  stack_depth: 5
+  psf:
+    lri: False
+    stride: 1
+    symmetric: True
+    optimize: False
+    padded_shape: 768 # only used if LRI is False
+    largest_psf_diam: 128
+    exposures: [0.00151,0.00909,0.022222,0.03333,0.04761] # exposures of eahc psf level
+    threshold: 0.55 # noise threshold
+    #norm: one # applies normalization to each psf ("one": L1, "two": L2)
+  operations:
+    sim_blur: False
+    sim_meas: True
+    adjoint: False
+    spectral_pad: False
+  
+recon_model_params:
+  model_name: "fista"
+  iters: 800
+  prox_method: "tv"
+  tv_lambda: 1.301
+  tv_lambdaw: 0.1
+  tv_lambdax: 0.66
+  print_every: 100
+  plot: False
+  
+# training params
+batch_size: 1
+patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
+patch_crop: [768, 768] # actual size on camera
+image_center: [1000, 2000] # center of both the image and mask crops
+num_workers: 6
+data_partition: [0.7, 0.15, 0.15] #["fruit", "pavia", "harvard"] # train, val, test

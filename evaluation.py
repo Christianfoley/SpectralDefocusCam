@@ -7,7 +7,7 @@ import dataframe_image as dfi
 import seaborn as sns
 
 import utils.helper_functions as helper
-import utils.metrics as metrics
+import utils.metric_utils as metric_utils
 
 
 METRICS = ("mae", "mse", "cossim", "psnr", "ssim", "lpips")
@@ -66,7 +66,7 @@ def generate_score_table(all_scores, save_dir=TABLE_DIR, stack_depths=STACK_DEPT
 def main():
     scores = []
     for model_preds in PREDICTIONS:
-        scores.append(metrics.get_metrics(model_preds, METRICS))
+        scores.append(metric_utils.get_metrics(model_preds, METRICS))
 
     all_scores = collections.defaultdict(list)
     for scores_dict in scores:

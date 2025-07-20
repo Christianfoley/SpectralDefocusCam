@@ -6,8 +6,8 @@ import torch.nn.functional as F
 import models.LCNF.helpers as helpers
 from models.LCNF.helpers import register
 
-import utils.lcnf_utils as utils
-from utils.lcnf_utils import make_coord
+import models.LCNF.lcnf_utils as utils
+from models.LCNF.lcnf_utils import make_coord
 
 
 @register("liif")

@@ -1,0 +1,63 @@
+# ------------------------------------------ #
+# -------------- DO NOT CHANGE ------------- #
+# -- STATIC CONFIG FOR FIGURE GENERATION --- #
+# ------------------------------------------ #
+
+# data paths
+checkpoints_dir: "/home/cfoley/defocuscamdata/models"
+psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
+base_data_path: "/home/cfoley/SpectralDefocusCam/studies/data/spatial_two_point_volumes_horizontal"
+save_recon_path: "/home/cfoley/SpectralDefocusCam/studies/simulation_resolution_study/outputs/defocuscam_fista_spatial_horizontal"
+mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+
+# model params
+device: 2
+data_precomputed: False
+forward_model_params:
+  stack_depth: 5
+  psf:
+    lri: False
+    stride: 1
+    symmetric: True
+    optimize: False
+    padded_shape: [768, 768] # only used if LRI is False
+    largest_psf_diam: 128
+    exposures: [0.00151,0.00909,0.022222,0.03333,0.04761] # exposures of eahc psf level
+    threshold: 0.55 # noise threshold
+    #norm: one # applies normalization to each psf ("one": L1, "two": L2)
+  operations:
+    sim_blur: False
+    sim_meas: True
+    adjoint: False
+    spectral_pad: False
+    fwd_mask_noise: False
+    shot_noise: False
+    read_noise: False
+  mask_noise:
+    type: gaussian
+    intensity: 0.001 # STD of gaussian calibration noise (we expect much more than sample)
+  sample_noise:
+    intensity: 0.001 # STD of gaussian read noise
+    photon_count: 10000 # photon count for shot noise
+
+recon_model_params:
+  model_name: "fista"
+  iters: 1501
+  tau: 0.85
+  prox_method: "native"
+  l_mult: 0.07
+  tv_lambda: 1.301
+  tv_lambdaw: 0.0
+  tv_lambdax: 0.0
+  print_every: 100
+  return_best: True
+  break_diverge_early: True
+  plot: False
+  
+# training params
+batch_size: 1
+patch_size: [256, 256] # inference & training size (NOTE: downsampling reduces filter precision)
+patch_crop: [768, 768] # actual size on camera
+image_center: [1028, 1928]
+num_workers: 6
+data_partition: [0.7, 0.15, 0.15] #["fruit", "pavia", "harvard"] # train, val, test

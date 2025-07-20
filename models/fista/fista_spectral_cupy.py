@@ -6,12 +6,12 @@ sys.path.append("spectral_diffusercam_utils/")
 
 if device == "GPU":
     import cupy as np
-    import utils.tv_approx_haar_cp as tv
+    import models.fista.tv_approx_haar as tv
 
     print("device = ", device, ", using GPU and cupy")
 else:
     import numpy as np
-    import utils.tv_approx_haar_np as tv
+    import models.fista.tv_approx_haar_np as tv
 
     print("device = ", device, ", using CPU and numpy")
 
