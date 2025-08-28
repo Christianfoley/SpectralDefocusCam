@@ -8,6 +8,14 @@ ENV_NAME_CUDA = defocuscam-cuda
 
 CONDA_BASE := $(shell conda info --base)
 
+MODELS_GDRIVE_ID = 1qF3mWDunSZWkwIEE9J5Yf0U0CwsVuHp4
+CALIBRATION_GDRIVE_ID = 1CLv0UZMjLzJzxfPxt6qjBouj0MMsNB_X
+SIMULATION_GDRIVE_ID = 1-McNlHr-sNFVO6_VPNOjiFBjENF2g05z
+EXPERIMENTAL_GDRIVE_ID = 1bWsWPD5CQTn3Yq5w8M2d4tOcTD7wbFJ4
+
+GDRIVE_URL = https://drive.google.com/drive/folders
+DATA_DIR = data/
+
 # Default target
 help:
 	@echo "Available commands:"
@@ -15,6 +23,13 @@ help:
 	@echo "  make setup-env-macos     - environment setup for macOS (CPU-only PyTorch)"
 	@echo "  make setup-env-linux     - environment setup for Linux (CPU-only PyTorch)"
 	@echo "  make setup-env-cuda      - environment setup with CUDA support (Linux/Windows)"
+	@echo ""
+	@echo "Data Management:"
+	@echo "  make data                - Download all data (recommended)"
+	@echo "  make data-models         - Download pretrained models only"
+	@echo "  make data-calibration    - Download calibration data only"
+	@echo "  make data-simulation     - Download simulation data only"
+	@echo "  make data-experimental-measurements - Download experimental data only"
 	@echo ""
 	@echo "note: conda or miniconda must be installed"
 
@@ -68,4 +83,29 @@ setup-env-cuda:
 	@echo ""
 	@echo "✅ Environment setup complete!"
 	@echo "        - conda activate $(ENV_NAME_CUDA)"
+
+
+# Data download commands (via google drive)
+data-models: 
+	@echo "Downloading pre-trained model weights, this may take a while..."
+	gdown --folder $(GDRIVE_URL)/$(MODELS_GDRIVE_ID) -O data/ --remaining-ok
+	@echo "Done!"
+
+data-calibration: 
+	@echo "Downloading calibration data, this may take a while..."
+	gdown --folder $(GDRIVE_URL)/$(CALIBRATION_GDRIVE_ID) -O data/ --remaining-ok
+	@echo "Done!"
+
+data-simulation: 
+	@echo "Downloading simulation data, this may take a while..."
+	gdown --folder $(GDRIVE_URL)/$(SIMULATION_GDRIVE_ID) -O data/ --remaining-ok
+	@echo "Done!"
+
+data-experimental-measurements: 
+	@echo "Downloading experimental measurements, this may take a while..."
+	gdown --folder $(GDRIVE_URL)/$(EXPERIMENTAL_GDRIVE_ID) -O data/ --remaining-ok
+	@echo "Done!"
+
+data: data-models data-calibration data-simulation data-experimental-measurements
+	@echo "All data downloaded successfully!"
 
