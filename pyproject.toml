@@ -18,7 +18,9 @@ dependencies = [
     "pyyaml",
     "opencv-python>=4.0",
     "ray>=2.0.0",
-    "tensorboard>=2.0.0"
+    "tensorboard>=2.0.0",
+    "wandb>=0.21.2",
+    "scikit-learn>=1.4.0"
 ]
 
 [project.optional-dependencies]

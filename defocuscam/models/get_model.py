@@ -2,18 +2,18 @@ import sys
 
 sys.path.append("..")
 
-from utils.diffuser_utils import *
+from defocuscam.utils.diffuser_utils import *
 
-import models.ensemble as ensemble
-import models.forward as fm
+import defocuscam.models.ensemble as ensemble
+import defocuscam.models.forward as fm
 
-import models.Unet.unet as Unet2d
-import models.Unet.unet3d as Unet3d
-import models.Unet.unet3d_conditioned as Unet3dcond
-import models.Unet.R2attunet as R2attunet3d
-import models.LCNF.liif as liif
-import models.fista.fista_spectral_batch as fista
-import models.fistanet.fista_net_spectral as fistanet
+import defocuscam.models.Unet.unet as Unet2d
+import defocuscam.models.Unet.unet3d as Unet3d
+import defocuscam.models.Unet.unet3d_conditioned as Unet3dcond
+import defocuscam.models.Unet.R2attunet as R2attunet3d
+import defocuscam.models.LCNF.liif as liif
+import defocuscam.models.fista.fista_spectral_batch as fista
+import defocuscam.models.fistanet.fista_net_spectral as fistanet
 
 
 def get_model(config, device, fwd_only=False, force_psfs=None):
@@ -84,7 +84,7 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
             norm=rm_params.get("norm", "batch"),
             residual=rm_params.get("residual", False),
             activation=rm_params.get("activation", "selu"),
-            adjoint=(not fm_params["operations"]["adjoint"])
+            adjoint=(not fm_params["operations"]["adjoint"]),
         )
     elif rm_params["model_name"] == "unet2d":
         recon_model = Unet2d.Unet(
@@ -122,9 +122,7 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
     full_model = ensemble.SSLSimulationModel(forward_model, recon_model)
 
     if config.get("preload_weights", False):
-        full_model.load_state_dict(
-            torch.load(config["checkpoint_dir"], map_location="cpu")
-        )
+        full_model.load_state_dict(torch.load(config["checkpoint_dir"], map_location="cpu"))
 
     if fwd_only:
         return full_model.model1.to(device)

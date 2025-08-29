@@ -26,3 +26,5 @@ data/fruitdata/*
 *.egg-info
 
 __*
+
+wandb/

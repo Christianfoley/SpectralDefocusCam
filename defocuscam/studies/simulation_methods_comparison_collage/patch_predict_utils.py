@@ -4,8 +4,8 @@ import itertools
 
 import torch
 
-from utils import diffuser_utils
-from models.ensemble import SSLSimulationModel
+from defocuscam.utils import diffuser_utils
+from defocuscam.models.ensemble import SSLSimulationModel
 
 # ----------------------------------------------------#
 # Utils for patchwise prediction on large images for #
@@ -91,9 +91,7 @@ def get_overlapping_positions(
     return list(itertools.product(y_centers, x_centers))
 
 
-def patchwise_predict_image_learned(
-    model: SSLSimulationModel, image: torch.Tensor, min_overlap=64
-):
+def patchwise_predict_image_learned(model: SSLSimulationModel, image: torch.Tensor, min_overlap=64):
     """
     Predict an entire large image using a learned model by breaking it into overlapping patches
     and predicting each patch separately, then stiching & blending the results.
@@ -169,9 +167,7 @@ def prep_image(image, crop_shape, patch_shape):
     """
     image = np.stack(
         [
-            diffuser_utils.pyramid_down(
-                image[: crop_shape[0], : crop_shape[1], i], patch_shape
-            )
+            diffuser_utils.pyramid_down(image[: crop_shape[0], : crop_shape[1], i], patch_shape)
             for i in range(image.shape[-1])
         ],
         0,

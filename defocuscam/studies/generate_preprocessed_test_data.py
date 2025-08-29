@@ -2,7 +2,7 @@ import sys
 
 sys.path.insert(0, "../..")
 
-import dataset.precomp_dataset as ds
+import defocuscam.dataset.precomp_dataset as ds
 import scipy.io as io
 import os
 import tqdm

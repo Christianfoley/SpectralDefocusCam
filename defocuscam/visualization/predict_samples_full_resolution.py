@@ -9,12 +9,10 @@ import tqdm
 import scipy.io
 import json
 
-from models.ensemble import SSLSimulationModel
-from utils import helper_functions as helper
-from train import get_model
-
-from studies.simulation_methods_comparison_collage import patch_predict_utils
-
+from defocuscam.models.ensemble import SSLSimulationModel
+from defocuscam.utils import helper_functions as helper
+from defocuscam.train import get_model
+from defocuscam.studies.simulation_methods_comparison_collage import patch_predict_utils
 
 SIM_GT_DIRECTORY = (
     "/home/cfoley/SpectralDefocusCam/visualization/data/icvl_double_largepatch_no_pairs"
@@ -110,9 +108,7 @@ def pred_single_simulation_sample_learned(
     patch = scipy.io.loadmat(sample_path)
 
     gt = patch_predict_utils.prep_image(patch["image"], crop_shape, patch_shape)
-    prediction = patch_predict_utils.patchwise_predict_image_learned(
-        model=model, image=gt
-    )
+    prediction = patch_predict_utils.patchwise_predict_image_learned(model=model, image=gt)
     gt_formatted = np.transpose(np.squeeze(gt), (1, 2, 0))
 
     return prediction, gt_formatted

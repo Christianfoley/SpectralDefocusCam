@@ -8,14 +8,14 @@ import scipy.io as io
 
 from multiprocessing import Pool
 
-import models.rdmpy.calibrate as calibrate
-import models.forward as forward
-import dataset.preprocess_data as prep_data
-import utils.psf_utils as psf_utils
-import utils.diffuser_utils as diffuser_utils
-import utils.helper_functions as helper
+import defocuscam.models.rdmpy.calibrate as calibrate
+import defocuscam.models.forward as forward
+import defocuscam.dataset.preprocess_data as prep_data
+import defocuscam.utils.psf_utils as psf_utils
+import defocuscam.utils.diffuser_utils as diffuser_utils
+import defocuscam.utils.helper_functions as helper
 
-from models.get_model import get_model
+from defocuscam.models.get_model import get_model
 
 
 def run_preprocessing(source_path, dest_path, patch_size, overwrite=True, depth=30):

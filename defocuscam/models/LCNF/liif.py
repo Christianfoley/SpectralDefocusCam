@@ -1,13 +1,14 @@
 "here, we use the LIIF method, modified from the LIIF algorithm: https://github.com/yinboc/liif"
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import models.LCNF.helpers as helpers
-from models.LCNF.helpers import register
+import defocuscam.models.LCNF.helpers as helpers
+from defocuscam.models.LCNF.helpers import register
 
-import models.LCNF.lcnf_utils as utils
-from models.LCNF.lcnf_utils import make_coord
+import defocuscam.models.LCNF.lcnf_utils as utils
+from defocuscam.models.LCNF.lcnf_utils import make_coord
 
 
 @register("liif")
@@ -96,9 +97,7 @@ class LIIF(nn.Module):
             .expand(feat.shape[0], 2, *feat.shape[-2:])
         )
 
-        preds = (
-            []
-        )  # collect predictions for queried point based on different latent code
+        preds = []  # collect predictions for queried point based on different latent code
         areas = []  # collect areas as weights
         for vx in vx_lst:  # here, the [-1, 1] is used for local ensemble
             for vy in vy_lst:
@@ -111,11 +110,7 @@ class LIIF(nn.Module):
                     coord_.flip(-1).unsqueeze(1),
                     mode="nearest",
                     align_corners=False,
-                )[
-                    :, :, 0, :
-                ].permute(
-                    0, 2, 1
-                )
+                )[:, :, 0, :].permute(0, 2, 1)
                 q_coord = F.grid_sample(  # pick the corresponding coordinates
                     feat_coord,
                     coord_.flip(-1).unsqueeze(1),
@@ -157,9 +152,7 @@ class LIIF(nn.Module):
             areas[2] = t
         ret = 0
         for pred, area in zip(preds, areas):
-            ret = ret + pred * (area / tot_area).unsqueeze(
-                -1
-            )  # output with weighted sum
+            ret = ret + pred * (area / tot_area).unsqueeze(-1)  # output with weighted sum
         return ret
 
     def forward(self, x: torch.Tensor, res_scaling=1, coord_batch_size=30000):

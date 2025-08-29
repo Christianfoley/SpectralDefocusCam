@@ -7,9 +7,9 @@ from torch.nn import Module
 sys.path.insert(0, "../..")
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
-import utils.helper_functions as helper
-import utils.diffuser_utils as diffuser_utils
-import dataset.precomp_dataset as ds
+import defocuscam.utils.helper_functions as helper
+import defocuscam.utils.diffuser_utils as diffuser_utils
+import defocuscam.dataset.precomp_dataset as ds
 
 
 def get_experimental_measurement_stack(
@@ -59,12 +59,8 @@ def get_experimental_measurement_stack(
     np.ndarray
         3d (NYX) measurement stack
     """
-    experimental_measurements = sorted(
-        glob.glob(os.path.join(measurements_dir, "*.bmp"))
-    )
-    assert (
-        len(experimental_measurements) > 0
-    ), f"No measurements found for {measurements_dir}"
+    experimental_measurements = sorted(glob.glob(os.path.join(measurements_dir, "*.bmp")))
+    assert len(experimental_measurements) > 0, f"No measurements found for {measurements_dir}"
 
     if blurstride < 0:  # only defocused psfs
         parsed_exp_measurements = experimental_measurements[-1:]
@@ -206,13 +202,9 @@ def save_reconstructed_fc_image(
         + ".png",
     )
     if use_band_average:
-        recon_fc = helper.select_and_average_bands(
-            recon, fc_range=fc_range, scaling=scaling
-        )
+        recon_fc = helper.select_and_average_bands(recon, fc_range=fc_range, scaling=scaling)
     else:
-        recon_fc = helper.fast_rgb_img_from_spectrum(
-            recon, fc_range=fc_range, gamma=gamma
-        )
+        recon_fc = helper.fast_rgb_img_from_spectrum(recon, fc_range=fc_range, gamma=gamma)
 
     recon_fc_uint8 = (helper.value_norm(recon_fc) * 255).astype(np.uint8)
     recon_image = Image.fromarray(recon_fc_uint8)

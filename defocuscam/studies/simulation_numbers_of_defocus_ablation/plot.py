@@ -10,8 +10,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.ticker import LogLocator, MaxNLocator
 
-import utils.helper_functions as helper
-from studies.run_study_utils import _get_unique_model_name, _override_config_parameters
+import defocuscam.utils.helper_functions as helper
+from defocuscam.studies.run_study_utils import _get_unique_model_name, _override_config_parameters
 
 sns.set_theme(style="whitegrid", font_scale=1.2)
 
@@ -170,9 +170,7 @@ def plot_metrics(
 
     plt.tight_layout()
 
-    out_path = os.path.join(
-        out_base_path, "_".join([plot_savename, metric_name]) + ".png"
-    )
+    out_path = os.path.join(out_base_path, "_".join([plot_savename, metric_name]) + ".png")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     plt.savefig(out_path)
     print(f"\nSaved plot to:\n\t{out_path}\n")
@@ -199,14 +197,12 @@ def generate_metrics_plots_for_one_ablation(
     # Collect the metrics derived from to those configs experiments
     model_jsons = collections.defaultdict(list)
     for config_path, config_overrides in zip(configs, overrides):
-        model_name, metric_jsons = collect_config_metrics_jsons(
-            config_path, config_overrides
-        )
+        model_name, metric_jsons = collect_config_metrics_jsons(config_path, config_overrides)
         model_jsons[model_name] += metric_jsons
 
-    assert all(
-        len(files) == expected_datapoints for files in model_jsons.values()
-    ), f"Unable to find metrics for all {ablation_name} values. Are all metrics files correctly named?"
+    assert all(len(files) == expected_datapoints for files in model_jsons.values()), (
+        f"Unable to find metrics for all {ablation_name} values. Are all metrics files correctly named?"
+    )
 
     # Plot the metrics
     for metric_name in metric_names:

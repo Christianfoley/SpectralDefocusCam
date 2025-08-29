@@ -5,9 +5,9 @@ import torch.nn.init as init
 import torch.nn.functional as F
 import numpy as np
 
-import models.fista.tv_approx_haar as tv_lib
-import utils.helper_functions as helper
-from utils.diffuser_utils import *
+import defocuscam.models.fista.tv_approx_haar as tv_lib
+import defocuscam.utils.helper_functions as helper
+from defocuscam.utils.diffuser_utils import *
 
 
 class fista_net_spectral(torch.nn.Module):
@@ -57,10 +57,7 @@ class fista_net_spectral(torch.nn.Module):
         # ----- Initialize iteration & fista parameters ----- #
         self.run_fista = params.get("run_fista", False)
         if self.run_fista:
-            self.L = (
-                self.power_iteration(self.Hpower, (self.DIMS0 * 2, self.DIMS1 * 2), 10)
-                * 200
-            )
+            self.L = self.power_iteration(self.Hpower, (self.DIMS0 * 2, self.DIMS1 * 2), 10) * 200
             self.prox_method = params.get("prox_method", "tv")
             self.tv_lambda = params.get("tv_lambda", 0.00005)
             self.tv_lambdaw = params.get("tv_lambdaw", 0.00005)
@@ -121,9 +118,7 @@ class fista_net_spectral(torch.nn.Module):
         """
         Version of forward model using only the first PSF as a utility function
         """
-        x = torch.fft.ifft2(
-            self.H[0] * torch.fft.fft2(x, dim=(-2, -1))[None, ...], dim=(-2, -1)
-        )
+        x = torch.fft.ifft2(self.H[0] * torch.fft.fft2(x, dim=(-2, -1))[None, ...], dim=(-2, -1))
         x = torch.sum(self.mask * crop_forward(self, torch.real(x)), 0)
         x = pad_zeros_torch(self, x)
         return x
@@ -187,10 +182,7 @@ class fista_net_spectral(torch.nn.Module):
         if tau is not None:
             thresh = tau
 
-        x = 0.5 * (
-            F.relu(x)
-            + tv_lib.tv3dApproxHaar(x, thresh, self.tv_lambdaw, self.tv_lambdax)
-        )
+        x = 0.5 * (F.relu(x) + tv_lib.tv3dApproxHaar(x, thresh, self.tv_lambdaw, self.tv_lambdax))
         return x
 
     # model building blocks
@@ -433,9 +425,7 @@ class fista_net_spectral(torch.nn.Module):
             input = torch.squeeze(input, -3)  # squeeze meas stack channel dim
         elif len(input.shape) == 3:
             input = input.unsqueeze(0)
-        assert (
-            len(input.shape) == 4
-        ), "Only accepts batch of measurement stacks (b,n,y,x)"
+        assert len(input.shape) == 4, "Only accepts batch of measurement stacks (b,n,y,x)"
 
         output = self.run(input.to(torch.float32))
         return output

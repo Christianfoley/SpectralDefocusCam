@@ -4,16 +4,16 @@ import tqdm
 import sys
 from pathlib import Path
 
-from utils.diffuser_utils import *
-import utils.helper_functions as helper
-import utils.metric_utils as metric_utils
-import dataset.dataset as ds
-import models.ensemble as ensemble
-import models.forward as fm
+from defocuscam.utils.diffuser_utils import *
+import defocuscam.utils.helper_functions as helper
+import defocuscam.utils.metric_utils as metric_utils
+import defocuscam.dataset.dataset as ds
+import defocuscam.models.ensemble as ensemble
+import defocuscam.models.forward as fm
 
 sys.path.append("..")
 
-import models.Unet.unet3d as Unet3d
+import defocuscam.models.Unet.unet3d as Unet3d
 
 
 def get_model_pretrained(weights, train_config, device):
@@ -147,15 +147,11 @@ def main(config):
     # read from the params of each weights dir
     for i, weights in enumerate(config["weights"]):
         train_dir = Path(weights).parent.absolute()
-        train_config = helper.read_config(
-            os.path.join(train_dir, "training_config.yml")
-        )
+        train_config = helper.read_config(os.path.join(train_dir, "training_config.yml"))
         model_name = os.path.basename(weights)[:-3]
 
         # get model
-        model = get_model_pretrained(
-            weights=weights, train_config=train_config, device=device
-        )
+        model = get_model_pretrained(weights=weights, train_config=train_config, device=device)
 
         # get data
         _, _, test_loader = ds.get_data(

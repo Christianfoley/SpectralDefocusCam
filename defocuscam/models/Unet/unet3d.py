@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.diffuser_utils import *
+from defocuscam.utils.diffuser_utils import *
+
 
 class ConvBlock(nn.Module):
     def __init__(
@@ -37,12 +38,8 @@ class ConvBlock(nn.Module):
             self.norm1 = nn.LocalResponseNorm(size=5)
             self.norm2 = nn.BatchNorm3d(out_channels, affine=True)
         if self.transpose:
-            self.conv1 = nn.ConvTranspose3d(
-                in_channels, out_channels, kernel_size=3, padding=1
-            )
-            self.conv2 = nn.ConvTranspose3d(
-                out_channels, out_channels, kernel_size=3, padding=1
-            )
+            self.conv1 = nn.ConvTranspose3d(in_channels, out_channels, kernel_size=3, padding=1)
+            self.conv2 = nn.ConvTranspose3d(out_channels, out_channels, kernel_size=3, padding=1)
         else:
             self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
             self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
@@ -140,27 +137,13 @@ class Unet(nn.Module):
         self.conv1 = ConvBlock(
             n_channel_in, 32, norm=norm, residual=residual, activation=activation
         )
-        self.conv2 = ConvBlock(
-            32, 64, norm=norm, residual=residual, activation=activation
-        )
-        self.conv3 = ConvBlock(
-            64, 128, norm=norm, residual=residual, activation=activation
-        )
-        self.conv4 = ConvBlock(
-            128, 256, norm=norm, residual=residual, activation=activation
-        )
-        self.conv5 = ConvBlock(
-            256, 256, norm=norm, residual=residual, activation=activation
-        )
-        self.conv6 = ConvBlock(
-            2 * 256, 128, norm=norm, residual=residual, activation=activation
-        )
-        self.conv7 = ConvBlock(
-            2 * 128, 64, norm=norm, residual=residual, activation=activation
-        )
-        self.conv8 = ConvBlock(
-            2 * 64, 32, norm=norm, residual=residual, activation=activation
-        )
+        self.conv2 = ConvBlock(32, 64, norm=norm, residual=residual, activation=activation)
+        self.conv3 = ConvBlock(64, 128, norm=norm, residual=residual, activation=activation)
+        self.conv4 = ConvBlock(128, 256, norm=norm, residual=residual, activation=activation)
+        self.conv5 = ConvBlock(256, 256, norm=norm, residual=residual, activation=activation)
+        self.conv6 = ConvBlock(2 * 256, 128, norm=norm, residual=residual, activation=activation)
+        self.conv7 = ConvBlock(2 * 128, 64, norm=norm, residual=residual, activation=activation)
+        self.conv8 = ConvBlock(2 * 64, 32, norm=norm, residual=residual, activation=activation)
         self.conv9 = ConvBlock(
             2 * 32, n_channel_out, norm=norm, residual=residual, activation=activation
         )

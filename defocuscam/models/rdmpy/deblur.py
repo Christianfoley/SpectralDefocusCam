@@ -5,10 +5,10 @@ import os
 
 import torch
 
-from models.rdmpy._src import opt, util
-from models.rdmpy.calibrate import get_psfs
-from models.rdmpy.dl_models.UNet.UNet import UNet
-from models.rdmpy.dl_models.DeepRD.DeepRD import UNet as DeepRD
+from defocuscam.models.rdmpy._src import opt, util
+from defocuscam.models.rdmpy.calibrate import get_psfs
+from defocuscam.models.rdmpy.dl_models.UNet.UNet import UNet
+from defocuscam.models.rdmpy.dl_models.DeepRD.DeepRD import UNet as DeepRD
 
 
 dirname = str(pathlib.Path(__file__).parent.absolute())
@@ -198,9 +198,7 @@ def deeprd(
     if verbose:
         print("deblurring...")
 
-    input = torch.stack((image.float() - 0.5, deconvolved.float() - 0.5)).cuda(
-        device=device
-    )
+    input = torch.stack((image.float() - 0.5, deconvolved.float() - 0.5)).cuda(device=device)
     output = torch.clip(model(input, sharpness * seidel_coeffs.T) + 0.5, 0, 1)
     recon = util.tensor_to_np(output)
 
@@ -301,12 +299,7 @@ def deconvolve(
 
     if method == "wiener":
         recon = (
-            (
-                opt.wiener(
-                    (image.float() - 0.5) * 2, psf, balance=def_opt_params["balance"]
-                )
-            )
-            / 2
+            (opt.wiener((image.float() - 0.5) * 2, psf, balance=def_opt_params["balance"])) / 2
             + 0.5
         ).cpu()
     elif method == "iter":

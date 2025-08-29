@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.diffuser_utils import *
+from defocuscam.utils.diffuser_utils import *
 
 
 class ConvBlock(nn.Module):
@@ -38,12 +38,8 @@ class ConvBlock(nn.Module):
             self.norm1 = nn.LocalResponseNorm(size=5)
             self.norm2 = nn.BatchNorm3d(out_channels, affine=True)
         if self.transpose:
-            self.conv1 = nn.ConvTranspose3d(
-                in_channels, out_channels, kernel_size=3, padding=1
-            )
-            self.conv2 = nn.ConvTranspose3d(
-                out_channels, out_channels, kernel_size=3, padding=1
-            )
+            self.conv1 = nn.ConvTranspose3d(in_channels, out_channels, kernel_size=3, padding=1)
+            self.conv2 = nn.ConvTranspose3d(out_channels, out_channels, kernel_size=3, padding=1)
         else:
             self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
             self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
@@ -151,9 +147,7 @@ class Unet(nn.Module):
         self.depth = psfs.shape[0]
 
         for i in range(5):
-            psf_conditions.append(
-                psfs[None, :, None, ...].repeat(1, 1, z_dims[i], 1, 1)
-            )
+            psf_conditions.append(psfs[None, :, None, ...].repeat(1, 1, z_dims[i], 1, 1))
             psfs = F.avg_pool2d(psfs, kernel_size=2, stride=2)
 
         self.psfs1 = nn.parameter.Parameter(psf_conditions[0], False)
@@ -191,15 +185,9 @@ class Unet(nn.Module):
         self.conv5 = ConvBlock(
             256 + self.depth, 256, norm=norm, residual=residual, activation=activation
         )
-        self.conv6 = ConvBlock(
-            2 * 256, 128, norm=norm, residual=residual, activation=activation
-        )
-        self.conv7 = ConvBlock(
-            2 * 128, 64, norm=norm, residual=residual, activation=activation
-        )
-        self.conv8 = ConvBlock(
-            2 * 64, 32, norm=norm, residual=residual, activation=activation
-        )
+        self.conv6 = ConvBlock(2 * 256, 128, norm=norm, residual=residual, activation=activation)
+        self.conv7 = ConvBlock(2 * 128, 64, norm=norm, residual=residual, activation=activation)
+        self.conv8 = ConvBlock(2 * 64, 32, norm=norm, residual=residual, activation=activation)
         self.conv9 = ConvBlock(
             2 * 32, n_channel_out, norm=norm, residual=residual, activation=activation
         )
@@ -238,24 +226,16 @@ class Unet(nn.Module):
     def fwd_pass(self, x):
         c0 = x
 
-        c1 = self.conv1(
-            torch.cat((x, self.psfs1.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
-        )
+        c1 = self.conv1(torch.cat((x, self.psfs1.repeat(x.shape[0], 1, 1, 1, 1)), dim=1))
         x = self.down1(c1)
 
-        c2 = self.conv2(
-            torch.cat((x, self.psfs2.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
-        )
+        c2 = self.conv2(torch.cat((x, self.psfs2.repeat(x.shape[0], 1, 1, 1, 1)), dim=1))
         x = self.down2(c2)
 
-        c3 = self.conv3(
-            torch.cat((x, self.psfs3.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
-        )
+        c3 = self.conv3(torch.cat((x, self.psfs3.repeat(x.shape[0], 1, 1, 1, 1)), dim=1))
         x = self.down3(c3)
 
-        c4 = self.conv4(
-            torch.cat((x, self.psfs4.repeat(x.shape[0], 1, 1, 1, 1)), dim=1)
-        )
+        c4 = self.conv4(torch.cat((x, self.psfs4.repeat(x.shape[0], 1, 1, 1, 1)), dim=1))
         x = self.down4(c4)
 
         x = self.conv5(torch.cat((x, self.psfs5.repeat(x.shape[0], 1, 1, 1, 1)), dim=1))

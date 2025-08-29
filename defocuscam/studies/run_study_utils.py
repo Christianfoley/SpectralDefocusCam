@@ -20,12 +20,12 @@ from pprint import pprint
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
-import utils.helper_functions as helper
-import utils.metric_utils as metrics
-from models.ensemble import SSLSimulationModel
-from models.get_model import get_model
+import defocuscam.utils.helper_functions as helper
+import defocuscam.utils.metric_utils as metrics
+from defocuscam.models.ensemble import SSLSimulationModel
+from defocuscam.models.get_model import get_model
 import numpy as np
-import dataset.dataset as ds
+import defocuscam.dataset.dataset as ds
 
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -130,9 +130,7 @@ def run_study_sweep(
         wandb_run = wandb.init(
             project=project_name,
             name=f"{run_name}_{suffix}" if len(suffix) else run_name,
-            config=_override_config_parameters(
-                helper.read_config(config_path), override_params
-            ),
+            config=_override_config_parameters(helper.read_config(config_path), override_params),
         )
 
         try:
@@ -190,7 +188,9 @@ def run_reconstruction_grid(
     # do a couple sanity checks on the completeness of the config
     config = helper.read_config(config_path)
     config = _override_config_parameters(config, override_params)
-    assert os.path.exists(config.get("base_data_path")), "Must specify data path"
+    assert os.path.exists(os.path.abspath(config.get("base_data_path"))), (
+        f"Must specify data path, got {os.path.abspath(config.get('base_data_path'))}."
+    )
     assert not config.get("passthrough"), "Forward model must not be passthrough"
     assert config.get("save_recon_path"), "Must provide save path"
     assert config.get("num_workers"), "Must provide number of workers for dataloading"
@@ -261,16 +261,11 @@ def reconstruct_samples(
     """
     os.makedirs(output_dir, exist_ok=True)
     results = []
-    for i, sample in tqdm.tqdm(
-        enumerate(test_dataloader), desc="Running reconstructions"
-    ):
+    for i, sample in tqdm.tqdm(enumerate(test_dataloader), desc="Running reconstructions"):
         # Batching means that we have a list of paths instead of a single path
-        sample_names = [
-            os.path.splitext(os.path.basename(p))[0] for p in sample["path"]
-        ]
+        sample_names = [os.path.splitext(os.path.basename(p))[0] for p in sample["path"]]
         output_paths = [
-            os.path.join(output_dir, "_".join([model_name, name]) + ".npy")
-            for name in sample_names
+            os.path.join(output_dir, "_".join([model_name, name]) + ".npy") for name in sample_names
         ]
 
         if not overwrite and all(os.path.exists(p) for p in output_paths):
@@ -280,9 +275,7 @@ def reconstruct_samples(
             try:
                 ground_truth = sample["image"]
 
-                sim_meas = model.model1(
-                    ground_truth.unsqueeze(1).to(model.model1.device)
-                )
+                sim_meas = model.model1(ground_truth.unsqueeze(1).to(model.model1.device))
 
                 # TODO fix this
                 # The learned models need simulated measurements to be 0 mean 1 std
@@ -373,9 +366,7 @@ def compute_metrics(
         (pred_path, gt_sample_names.get(_extract_sample_name(pred_path, model_name)))
         for pred_path in pred_files
     ]
-    matched = [
-        (pred, gt) for pred, gt in matched if gt is not None and os.path.exists(gt)
-    ]
+    matched = [(pred, gt) for pred, gt in matched if gt is not None and os.path.exists(gt)]
 
     print(f"Found {len(matched)} matched predictions and ground truth samples.")
 
@@ -385,9 +376,7 @@ def compute_metrics(
         return
 
     # Save aggregate and overwrite existing metrics if we've gotten this far
-    agg_metrics = {
-        m: float(np.mean([r[m] for r in results])) for m in results[0].keys()
-    }
+    agg_metrics = {m: float(np.mean([r[m] for r in results])) for m in results[0].keys()}
     _display_metrics_cli(agg_metrics)
     print(f"Saving metrics to {metrics_out_path}.\n")
     with open(metrics_out_path, "w") as f:
@@ -440,17 +429,9 @@ def _get_unique_model_name(config: dict) -> str:
     depth = fwd_params["stack_depth"]
     psf_stride = fwd_params["psf"]["stride"]
 
-    masknoise = (
-        fwd_params["mask_noise"]["intensity"] if operations["fwd_mask_noise"] else False
-    )
-    shotnoise = (
-        fwd_params["sample_noise"]["photon_count"]
-        if operations["shot_noise"]
-        else False
-    )
-    readnoise = (
-        fwd_params["sample_noise"]["intensity"] if operations["read_noise"] else False
-    )
+    masknoise = fwd_params["mask_noise"]["intensity"] if operations["fwd_mask_noise"] else False
+    shotnoise = fwd_params["sample_noise"]["photon_count"] if operations["shot_noise"] else False
+    readnoise = fwd_params["sample_noise"]["intensity"] if operations["read_noise"] else False
 
     return "-".join(
         [
@@ -494,9 +475,7 @@ def _calculate_metrics_multiprocessed(
     return results
 
 
-def _calculate_metrics(
-    total: int, idx: int, pred_file, gt_file
-) -> Optional[dict[str, float]]:
+def _calculate_metrics(total: int, idx: int, pred_file, gt_file) -> Optional[dict[str, float]]:
     """
     Helper function for a single sample's calculate metrics job. Returns a
     JSON dictionary of calculated metrics for the provided sample pair.
@@ -528,7 +507,7 @@ def _calculate_metrics(
                 return None
             sample_scores[metric] = score
 
-        print(f"Processed {idx+1} / {total}", end="\r")
+        print(f"Processed {idx + 1} / {total}", end="\r")
         return sample_scores
 
     except Exception as e:

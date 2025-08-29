@@ -8,7 +8,7 @@ from ._src import opt, seidel, util, polar_transform
 import pdb
 import gc
 
-import utils.psf_utils as psf_utils
+import defocuscam.utils.psf_utils as psf_utils
 
 
 def calibrate_stack(
@@ -102,9 +102,7 @@ def calibrate_stack(
     img_stack = []
     stack_psf_locations = []
     for i in range(calib_image_stack.shape[0]):
-        psf_locations, calib_image = util.get_calib_info(
-            calib_image_stack[i], dim, def_fit_params
-        )
+        psf_locations, calib_image = util.get_calib_info(calib_image_stack[i], dim, def_fit_params)
         img_stack.append(calib_image)
         stack_psf_locations.append(psf_locations)
     calib_image_stack = np.stack(img_stack, 0)
@@ -389,8 +387,7 @@ def get_psfs_measured(
 
     # add together the real and imaginary parts of the RoFTs
     psf_data = (
-        psf_data[:, 0 : psf_data.shape[1] // 2, :]
-        + 1j * psf_data[:, psf_data.shape[1] // 2 :, :]
+        psf_data[:, 0 : psf_data.shape[1] // 2, :] + 1j * psf_data[:, psf_data.shape[1] // 2 :, :]
     )
     gc.collect()
     torch.cuda.empty_cache()

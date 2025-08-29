@@ -7,7 +7,7 @@ import scipy.io
 import cv2
 from scipy.ndimage import generic_filter
 
-import models.rdmpy.blur as blur
+import defocuscam.models.rdmpy.blur as blur
 
 import matplotlib.pyplot as plt
 
@@ -45,9 +45,7 @@ def pyramid_down(image, out_shape):
     if image.shape[0] == out_shape[0] and image.shape[1] == out_shape[1]:
         return image
     closest_pyr = cv2.pyrDown(image, (image.shape[1] // 2, image.shape[0] // 2))
-    return cv2.resize(
-        closest_pyr, (out_shape[1], out_shape[0]), interpolation=cv2.INTER_AREA
-    )
+    return cv2.resize(closest_pyr, (out_shape[1], out_shape[0]), interpolation=cv2.INTER_AREA)
 
 
 def binning_down(image, out_shape):
@@ -60,9 +58,9 @@ def binning_down(image, out_shape):
         assert image.shape[0] % out_shape[0] == 0, "crop & patch dims must be multiples"
         assert image.shape[1] % out_shape[1] == 0, "crop & patch dims must be multiples"
 
-    assert (
-        image.shape[0] // out_shape[0] == image.shape[1] // out_shape[1]
-    ), "binned downsample rate must be equivalent in both dimensions"
+    assert image.shape[0] // out_shape[0] == image.shape[1] // out_shape[1], (
+        "binned downsample rate must be equivalent in both dimensions"
+    )
 
     ksize = (image.shape[0] // out_shape[0], image.shape[1] // out_shape[1])
     avgpool = torch.nn.AvgPool2d(ksize)
@@ -230,9 +228,7 @@ def batch_ring_convolve(batch, psfs, device=torch.device("cpu")):
     return batch
 
 
-def preprocess_meas(
-    meas, center, crop_size, dim, outlier_std_threshold=2.5, defective_pixels=[]
-):
+def preprocess_meas(meas, center, crop_size, dim, outlier_std_threshold=2.5, defective_pixels=[]):
     """
     Preprocesses experimental measurements by cropping, normalizing, removing outlier
     and defective pixels, and zeroing
@@ -360,25 +356,17 @@ def mov_avg_mask(cube, waves, start, end, step=8, width=8):
     for i, wave in enumerate(new_waves):
         idx = np.where(waves == wave)[0][0]
         lp_cube[i] = np.mean(
-            cube[
-                max(0, idx - idx_width // 2) : min(
-                    idx + idx_width // 2 + 1, len(waves) - 1
-                )
-            ],
+            cube[max(0, idx - idx_width // 2) : min(idx + idx_width // 2 + 1, len(waves) - 1)],
             0,
         )
         actual_new_waves[i] = np.mean(
-            waves[
-                max(0, idx - idx_width // 2) : min(
-                    idx + idx_width // 2 + 1, len(waves) - 1
-                )
-            ]
+            waves[max(0, idx - idx_width // 2) : min(idx + idx_width // 2 + 1, len(waves) - 1)]
         )
 
     # safety check that the given wavelengths apply to the data cube
-    assert np.all(
-        np.equal(new_waves, actual_new_waves)
-    ), "Detected mismatch between generated and requested wavelengths"
+    assert np.all(np.equal(new_waves, actual_new_waves)), (
+        "Detected mismatch between generated and requested wavelengths"
+    )
 
     return lp_cube, new_waves
 
@@ -487,9 +475,7 @@ def process_mat_files(input_directory, output_directory, overwrite=True):
 
             # Check if the file already exists in the output directory
             if os.path.exists(output_file_path) and not overwrite:
-                print(
-                    f"File {file} already exists in the output directory. Skipping..."
-                )
+                print(f"File {file} already exists in the output directory. Skipping...")
                 continue
             try:
                 data = scipy.io.loadmat(file_path)
@@ -566,12 +552,10 @@ def ifftshift2d(x):
 
 def roll_n(X, axis, n):
     f_idx = tuple(
-        slice(None, None, None) if i != axis else slice(0, n, None)
-        for i in range(X.dim())
+        slice(None, None, None) if i != axis else slice(0, n, None) for i in range(X.dim())
     )
     b_idx = tuple(
-        slice(None, None, None) if i != axis else slice(n, None, None)
-        for i in range(X.dim())
+        slice(None, None, None) if i != axis else slice(n, None, None) for i in range(X.dim())
     )
     front = X[f_idx]
     back = X[b_idx]
@@ -586,9 +570,7 @@ def get_radius(y, x):
 def complex_multiplication(t1, t2):
     real1, imag1 = torch.unbind(t1, dim=-1)
     real2, imag2 = torch.unbind(t2, dim=-1)
-    return torch.stack(
-        [real1 * real2 - imag1 * imag2, real1 * imag2 + imag1 * real2], dim=-1
-    )
+    return torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + imag1 * real2], dim=-1)
 
 
 def complex_abs(t1):

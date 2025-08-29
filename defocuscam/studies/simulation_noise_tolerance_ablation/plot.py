@@ -5,13 +5,13 @@ import glob
 
 import seaborn as sns
 
-from studies.simulation_noise_tolerance_ablation.run import (
+from defocuscam.studies.simulation_noise_tolerance_ablation.run import (
     SHOT_NOISE_PHOTON_COUNT,
     READ_NOISE_INTENSITY,
     CALIBRATION_NOISE_INTENSITY,
     generate_sweep_configs,
 )
-from studies.simulation_numbers_of_defocus_ablation.plot import (
+from defocuscam.studies.simulation_numbers_of_defocus_ablation.plot import (
     generate_metrics_plots_for_one_ablation,
 )
 
@@ -21,9 +21,7 @@ sns.set_theme(style="whitegrid", font_scale=1.2)
 
 def extract_noise_from_path(path):
     """Extract sigmas and photon count from the filename."""
-    match = re.search(
-        r"masknoise=([0-9e.-]+)-shotnoise=([0-9e.-]+)-readnoise=([0-9e.-]+)", path
-    )
+    match = re.search(r"masknoise=([0-9e.-]+)-shotnoise=([0-9e.-]+)-readnoise=([0-9e.-]+)", path)
     if match:
         masknoise = float(match.group(1))
         shotnoise = float(match.group(2))
@@ -53,9 +51,7 @@ def main():
     suffix_key = "read"
     generate_metrics_plots_for_one_ablation(
         configs=[cfg for cfg, suffix in zip(configs, suffixes) if suffix_key in suffix],
-        overrides=[
-            ovr for ovr, suffix in zip(overrides, suffixes) if suffix_key in suffix
-        ],
+        overrides=[ovr for ovr, suffix in zip(overrides, suffixes) if suffix_key in suffix],
         ablation_name="read_noise",
         out_path=os.path.join(OUT_PATH, suffix_key + "_noise"),
         expected_datapoints=len(READ_NOISE_INTENSITY),
@@ -72,9 +68,7 @@ def main():
     suffix_key = "shot"
     generate_metrics_plots_for_one_ablation(
         configs=[cfg for cfg, suffix in zip(configs, suffixes) if suffix_key in suffix],
-        overrides=[
-            ovr for ovr, suffix in zip(overrides, suffixes) if suffix_key in suffix
-        ],
+        overrides=[ovr for ovr, suffix in zip(overrides, suffixes) if suffix_key in suffix],
         ablation_name="shot_noise",
         out_path=os.path.join(OUT_PATH, suffix_key + "_noise"),
         expected_datapoints=len(SHOT_NOISE_PHOTON_COUNT),
@@ -90,9 +84,7 @@ def main():
     suffix_key = "mask"
     generate_metrics_plots_for_one_ablation(
         configs=[cfg for cfg, suffix in zip(configs, suffixes) if suffix_key in suffix],
-        overrides=[
-            ovr for ovr, suffix in zip(overrides, suffixes) if suffix_key in suffix
-        ],
+        overrides=[ovr for ovr, suffix in zip(overrides, suffixes) if suffix_key in suffix],
         ablation_name="mask_noise",
         out_path=os.path.join(OUT_PATH, suffix_key + "_noise"),
         expected_datapoints=len(CALIBRATION_NOISE_INTENSITY),

@@ -6,16 +6,16 @@ sys.path.append("spectral_diffusercam_utils/")
 
 if device == "GPU":
     import cupy as np
-    import models.fista.tv_approx_haar as tv
+    import defocuscam.models.fista.tv_approx_haar as tv
 
     print("device = ", device, ", using GPU and cupy")
 else:
     import numpy as np
-    import models.fista.tv_approx_haar_np as tv
+    import defocuscam.models.fista.tv_approx_haar_np as tv
 
     print("device = ", device, ", using CPU and numpy")
 
-import utils.helper_functions as fc
+import defocuscam.utils.helper_functions as fc
 import numpy as numpy
 import matplotlib.pyplot as plt
 
@@ -82,15 +82,11 @@ class fista_spectral_numpy:
         if len(x.shape) == 2:
             out = np.pad(x, ([self.py, self.py], [self.px, self.px]), mode="constant")
         elif len(x.shape) == 3:
-            out = np.pad(
-                x, ([self.py, self.py], [self.px, self.px], [0, 0]), mode="constant"
-            )
+            out = np.pad(x, ([self.py, self.py], [self.px, self.px], [0, 0]), mode="constant")
         return out
 
     def Hpower(self, x):
-        x = np.fft.ifft2(
-            self.H * np.fft.fft2(np.expand_dims(x, -1), axes=(0, 1)), axes=(0, 1)
-        )
+        x = np.fft.ifft2(self.H * np.fft.fft2(np.expand_dims(x, -1), axes=(0, 1)), axes=(0, 1))
         x = np.sum(self.mask * self.crop(np.real(x)), 2)
         x = self.pad(x)
         return x
@@ -118,8 +114,7 @@ class fista_spectral_numpy:
     def prox(self, x):
         if self.prox_method == "tv":
             x = 0.5 * (
-                np.maximum(x, 0)
-                + tv.tv3dApproxHaar(x, self.tv_lambda / self.L, self.tv_lambdaw)
+                np.maximum(x, 0) + tv.tv3dApproxHaar(x, self.tv_lambda / self.L, self.tv_lambdaw)
             )
         if self.prox_method == "native":
             x = np.maximum(x, 0) + self.soft_thresh(x, self.tau)
