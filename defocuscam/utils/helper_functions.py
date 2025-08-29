@@ -5,7 +5,6 @@ import torch
 import scipy.io
 import yaml
 import colour
-from IPython.core.display import display, HTML
 from ipywidgets import interact, widgets, fixed
 
 import plotly.graph_objects as go
@@ -84,8 +83,6 @@ def read_config(config_fname):
 
 
 def plotf2(r, img, ttl, sz):
-    # fig = plt.figure(figsize=(2, 2));
-    # plt.figure(figsize=(20, 20));
     plt.title(ttl + " {}".format(r))
     plt.imshow(img[:, :, r], cmap="gray", vmin=0, vmax=np.max(img))
     plt.axis("off")
@@ -93,13 +90,10 @@ def plotf2(r, img, ttl, sz):
     fig.set_size_inches(sz)
     fig.set_dpi(100)
     plt.show()
-    # display(fig)
-    # clear_output(wait=True)
     return
 
 
 def plt3D(img, title="", size=(5, 5)):
-    # fig = plt.figure(figsize=sz);
     interact(
         plotf2,
         r=widgets.IntSlider(min=0, max=np.shape(img)[-1] - 1, step=1, value=1),
@@ -204,9 +198,7 @@ def fast_rgb_img_from_spectrum(data_cube, fc_range, step=10, gamma=0.7):
 
     pixels = cube.reshape(-1, cube.shape[-1])  # shape: (H*W, L)
     wavelength_interval = new_wavs[1] - new_wavs[0] if len(new_wavs) > 1 else step
-    shape = SpectralShape(
-        start=new_wavs[0], end=new_wavs[-1], interval=wavelength_interval
-    )
+    shape = SpectralShape(start=new_wavs[0], end=new_wavs[-1], interval=wavelength_interval)
 
     # Get CMFs and align to our wavelengths
     cmfs = MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
@@ -292,13 +284,9 @@ def stack_rgb_opt_30(
     """
     # Validate input
     if len(fc_range) != 2:
-        raise ValueError(
-            "spectral_range should have two elements (start and end wavelengths)."
-        )
+        raise ValueError("spectral_range should have two elements (start and end wavelengths).")
     if len(scaling) != 3:
-        raise ValueError(
-            "scaling should have three elements (one for each RGB channel)."
-        )
+        raise ValueError("scaling should have three elements (one for each RGB channel).")
     if reflArray.ndim != 3:
         raise ValueError("reflArray should be a 3D numpy array.")
 
@@ -314,9 +302,7 @@ def stack_rgb_opt_30(
 
     # align the cmfs to the requested range and integrate over channels
     wavelengths = np.linspace(*fc_range[:2], reflArray.shape[2], endpoint=False)
-    idcs = np.squeeze(
-        np.array([np.where(cmfs.wavelengths == int(w)) for w in wavelengths])
-    )
+    idcs = np.squeeze(np.array([np.where(cmfs.wavelengths == int(w)) for w in wavelengths]))
 
     rgb_image = np.einsum("yxwc,wc->yxc", reflArray[..., None], cmfs.values[idcs, :])
 
@@ -357,9 +343,7 @@ def stack_rgb_opt(
     return stackedRGB
 
 
-def plot_superpixel_waves(
-    cube, waves_start=390, waves_end=870, startx=1557, starty=826, scale=1
-):
+def plot_superpixel_waves(cube, waves_start=390, waves_end=870, startx=1557, starty=826, scale=1):
     """
     Plots wavelengths from every filter in a single superpixel
 
@@ -382,19 +366,13 @@ def plot_superpixel_waves(
                 np.mean(
                     superpix[
                         :,
-                        int(offset + i * filt_size)
-                        - 1 : int(offset + i * filt_size)
-                        + 2,
-                        int(offset + j * filt_size)
-                        - 1 : int(offset + j * filt_size)
-                        + 2,
+                        int(offset + i * filt_size) - 1 : int(offset + i * filt_size) + 2,
+                        int(offset + j * filt_size) - 1 : int(offset + j * filt_size) + 2,
                     ],
                     (-1, -2),
                 ),
             )
-            temp_img[int(offset + i * filt_size), int(offset + j * filt_size)] = (
-                maxval * 1.2
-            )
+            temp_img[int(offset + i * filt_size), int(offset + j * filt_size)] = maxval * 1.2
 
     ax[1].imshow(temp_img)
     ax[0].set_title("Filter waves (nm)")
@@ -445,26 +423,19 @@ def plot_cube_interactive(
     )
     if use_false_color:
         projected_false_color = (
-            value_norm(
-                select_and_average_bands(data_cube, fc_range, scaling=fc_scaling)
-            )
-            * 255
+            value_norm(select_and_average_bands(data_cube, fc_range, scaling=fc_scaling)) * 255
         ).astype(np.uint8)
         image_trace = go.Image(z=projected_false_color)
     else:
         image_trace = go.Heatmap(z=mean_image, colorscale="Viridis")
-    vector_plot_trace = go.Scatter(
-        x=wavs, y=[], mode="lines+markers", name="point response"
-    )
+    vector_plot_trace = go.Scatter(x=wavs, y=[], mode="lines+markers", name="point response")
     vector_plot_trace_mean = go.Scatter(
         x=wavs,
         y=data_cube.mean(axis=(0, 1)),
         mode="lines+markers",
         name=f"local {avg_block_size} pix response",
     )
-    marker_trace = go.Scatter(
-        x=[], y=[], mode="markers", marker=dict(color="red", size=10)
-    )
+    marker_trace = go.Scatter(x=[], y=[], mode="markers", marker=dict(color="red", size=10))
 
     fig.add_trace(image_trace, row=1, col=1)
     fig.add_trace(vector_plot_trace, row=1, col=2)
@@ -493,9 +464,7 @@ def plot_cube_interactive(
 
             # Extract the region from data_cube and compute mean
             depth_vector = data_cube[y, x, :]
-            depth_vector_mean = data_cube[y_start:y_end, x_start:x_end, :].mean(
-                axis=(0, 1)
-            )
+            depth_vector_mean = data_cube[y_start:y_end, x_start:x_end, :].mean(axis=(0, 1))
 
             # Update plot and img marker
             with fig.batch_update():
