@@ -1,4 +1,7 @@
-import sys, os, glob, tqdm, pathlib
+import sys
+import os
+import tqdm
+import pathlib
 
 sys.path.insert(0, "../../")
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -6,8 +9,8 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 import dataset.precomp_dataset as ds
 import utils.helper_functions as helper
 import train
-import numpy as np, torch
-import scipy.io as io
+import numpy as np
+import torch
 
 DEVICE = "cuda:1"
 

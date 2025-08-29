@@ -1,5 +1,7 @@
 # utils for experimental psfs
-import sys, glob, os, pprint
+import sys
+import glob
+import os
 import gc
 from tqdm import tqdm
 

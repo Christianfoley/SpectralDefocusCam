@@ -1,5 +1,6 @@
 import torch
-import os, glob
+import os
+import glob
 import tqdm
 import sys
 from pathlib import Path

@@ -1,4 +1,6 @@
-import sys, os, glob, tqdm, pathlib
+import sys
+import os
+import glob
 
 sys.path.insert(0, "../../")
 sys.path.append("/home/cfoley_waller/defocam/SpectralDefocusCam")
@@ -6,7 +8,8 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
 import utils.helper_functions as helper
 import train
-import numpy as np, torch
+import numpy as np
+import torch
 import scipy.io as io
 
 DEVICE = "cuda:0"

@@ -2,7 +2,6 @@ import numpy as np
 import glob
 import os
 
-import torch
 import skimage.metrics as metrics
 from sklearn.metrics.pairwise import cosine_similarity
 import scipy

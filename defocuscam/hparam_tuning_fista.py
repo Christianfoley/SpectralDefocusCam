@@ -1,4 +1,6 @@
-import os, glob, tqdm
+import os
+import glob
+import tqdm
 import matplotlib.pyplot as plt
 import torch
 import time

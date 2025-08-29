@@ -1,7 +1,6 @@
 import numpy as np
 import time
 import torch
-import torch.nn.functional as F
 import tqdm
 import matplotlib.pyplot as plt
 import scipy.io
@@ -24,8 +23,6 @@ from defocuscam.models.get_model import get_model
 
 
 # don't delete: registering
-import defocuscam.models.LCNF.edsr
-import defocuscam.models.LCNF.mlp
 
 
 def get_save_folder(config):

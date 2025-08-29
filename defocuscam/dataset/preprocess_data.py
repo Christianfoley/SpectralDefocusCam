@@ -1,6 +1,7 @@
 import itertools
 import numpy as np
-import os, glob, csv
+import os
+import glob
 import scipy.io as io
 import h5py
 from scipy.interpolate import interp1d

@@ -3,7 +3,6 @@ import numpy as np
 import random
 import scipy.io as io
 import os
-import glob
 import time
 
 from torch.utils.data import Dataset

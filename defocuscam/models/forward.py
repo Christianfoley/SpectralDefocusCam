@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-import os, glob
+import os
+import glob
 import scipy.io as io
 from datetime import datetime
 import tqdm

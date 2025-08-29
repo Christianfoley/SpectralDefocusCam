@@ -1,5 +1,6 @@
 import torch.nn.functional as F
-import os, tqdm
+import os
+import tqdm
 import numpy as np
 import torch
 import torch.optim
@@ -9,7 +10,6 @@ from scipy.ndimage import generic_filter
 
 import defocuscam.models.rdmpy.blur as blur
 
-import matplotlib.pyplot as plt
 
 
 def fft_psf(model, h):

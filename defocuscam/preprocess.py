@@ -1,18 +1,11 @@
-import sys, os, glob
+import os
 
 import ray
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
-import scipy.io as io
 
-from multiprocessing import Pool
 
-import defocuscam.models.rdmpy.calibrate as calibrate
 import defocuscam.models.forward as forward
 import defocuscam.dataset.preprocess_data as prep_data
-import defocuscam.utils.psf_utils as psf_utils
-import defocuscam.utils.diffuser_utils as diffuser_utils
 import defocuscam.utils.helper_functions as helper
 
 from defocuscam.models.get_model import get_model
@@ -106,7 +99,7 @@ def main(config, num_cpus=8):
     # run preprocessing from raw data
     source_data_path = config.get(
         "source_data_path",
-        "/home/cfoley/defocuscamdata/sample_data/",
+        "data/sample_data/",
     )
 
     run_preprocessing(

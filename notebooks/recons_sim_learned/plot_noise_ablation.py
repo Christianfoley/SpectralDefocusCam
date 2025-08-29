@@ -1,8 +1,9 @@
 # %%
 import matplotlib.pyplot as plt
 import seaborn as sns
-import json, re
-from matplotlib.ticker import MultipleLocator, ScalarFormatter
+import json
+import re
+from matplotlib.ticker import MultipleLocator
 
 
 def get_scores_by_metric(scores):
