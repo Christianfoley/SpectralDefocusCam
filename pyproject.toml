@@ -12,6 +12,8 @@ dependencies = [
     "colour-science>=0.1.5",
     "gdown",
     "h5py",
+    "ipython",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]

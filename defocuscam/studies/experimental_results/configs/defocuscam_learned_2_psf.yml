@@ -4,10 +4,10 @@
 # ------------------------------------------ #
 
 # data paths
-checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_results_learned_largecrop_config.yml/2024_03_16_21_09_51/saved_model_ep49_testloss_0.05782177185882693.pt"
-psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-base_data_path: "/home/cfoley/defocuscamdata/sample_data_preprocessed/sample_data_preprocessed_largecrop_shotnoise_lsi_02_07_L1psf_2meas"
-mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+checkpoint_dir: "../../../data/models/checkpoint_results_learned_largecrop_config.yml/2024_03_16_21_09_51/saved_model_ep49_testloss_0.05782177185882693.pt"
+psf_dir: "../../../data/calibration_data/lsi_psfs_raw"
+base_data_path: "../../../data/sample_data_preprocessed/sample_data_preprocessed_largecrop_shotnoise_lsi_02_07_L1psf_2meas"
+mask_dir: "../../../data/calibration_data/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 # model params
 device: 2

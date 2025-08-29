@@ -4,12 +4,12 @@
 # ------------------------------------------ #
 
 # data paths
-checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_firstlastonly_L1psf_5meas_nomasknoise.yml/2024_03_22_03_36_09/saved_model_ep78_testloss_0.041193413242855866.pt"
-config_fname: "/home/cfoley/SpectralDefocusCam/config_files/cond_unet_ablation/train_02_07_2024_lsi_adjoint_condunet_firstlastonly_L1psf_3meas.yml"
-base_data_path: "/home/cfoley/SpectralDefocusCam/studies/data/test_set_small"
-psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_L1_390-870_30chan_stride16_avg16.mat"
-save_recon_path: "/home/cfoley/SpectralDefocusCam/studies/simulation_numbers_of_defocus_ablation/outputs/defocuscam_learned/"
+checkpoint_dir: "../../../data/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_L1psf_2meas.yml/2024_03_11_14_44_55/saved_model_ep28_testloss_0.04970918206568315.pt"
+config_fname: "../../../configs/cond_unet_ablation/train_02_07_2024_lsi_adjoint_condunet_firstlastonly_L1psf_3meas.yml"
+base_data_path: "../../../data/sample_data_preprocessed/model_ablation_test_set"
+psf_dir: "../../../data/calibration_data/lsi_psfs_raw"
+mask_dir: "../../../data/calibration_data/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+save_recon_path: "outputs/defocuscam_learned/"
 
 # model params
 device: 0

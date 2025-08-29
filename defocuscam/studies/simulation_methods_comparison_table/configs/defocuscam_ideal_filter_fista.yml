@@ -1,9 +1,9 @@
 # data paths
-checkpoints_dir: "/home/cfoley_waller/defocam/defocuscamdata/models"
-psf_dir: "/home/emarkley/Workspace/PYTHON/SpectralDefocusCam/notebooks/eric_simulation_studies/ideal_psfs" 
-base_data_path: "/home/cfoley/defocuscamdata/recons/model_ablation_test_set"
-mask_dir: "/home/emarkley/Workspace/PYTHON/SpectralDefocusCam/notebooks/eric_simulation_studies/ideal_filter_ICCP_2024.mat"
-save_recon_path: "/home/cfoley/SpectralDefocusCam/studies/simulation_methods_comparison_table/outputs/defocuscam_ideal_filter_fista/"
+checkpoints_dir: "../../../models"
+psf_dir: "../../../data/calibration_data/ideal_psfs" 
+base_data_path: "../../../data/sample_data_preprocessed/model_ablation_test_set"
+mask_dir: "../../../data/calibration_data/ideal_filter_ICCP_2024.mat"
+save_recon_path: "outputs/defocuscam_ideal_filter_fista/"
 
 # model params
 device: 1
