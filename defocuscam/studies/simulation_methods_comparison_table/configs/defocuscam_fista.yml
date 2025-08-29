@@ -4,10 +4,10 @@
 # ------------------------------------------ #
 
 # data paths
-psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-base_data_path: "/home/cfoley/defocuscamdata/recons/model_ablation_test_set"
-save_recon_path: "/home/cfoley/SpectralDefocusCam/studies/simulation_methods_comparison_table/outputs/defocuscam_fista/"
-mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+psf_dir: "../../../data/calibration_data/lsi_psfs_raw"
+base_data_path: "../../../data/sample_data_preprocessed/model_ablation_test_set"
+save_recon_path: "outputs/defocuscam_fista/"
+mask_dir: "../../../data/calibration_data/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 # model params
 device: 0

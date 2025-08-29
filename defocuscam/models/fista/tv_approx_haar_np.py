@@ -26,7 +26,7 @@ def iht3(w1, w2, ax, shift, shape):
     C = 1./np.sqrt(2.)
     y = np.zeros(shape)
 
-    x1 = C*(w1 - w2); x2 = C*(w1 + w2); 
+    x1 = C*(w1 - w2); x2 = C*(w1 + w2) 
     if ax == 0:
         y[0::2, :, :] = x1
         y[1::2, :, :] = x2
@@ -49,9 +49,9 @@ def iht3_py2(w1, w2, ax, shift, shape):
     C = 1./np.sqrt(2.)
     y = np.zeros(shape)
 
-    x1 = C*(w1 - w2); x2 = C*(w1 + w2); 
+    x1 = C*(w1 - w2); x2 = C*(w1 + w2) 
         
-    ind = ax + 2;
+    ind = ax + 2
     y = np.reshape(np.concatenate([np.expand_dims(x1, ind), np.expand_dims(x2, ind)], axis = ind), shape)
     
     
@@ -71,7 +71,7 @@ def tv3dApproxHaar(x, tau, alpha):
         if ax ==2:
             t_scale = alpha
         else:
-            t_scale = 1;
+            t_scale = 1
 
         w0, w1 = ht3(x, ax, False, thresh*t_scale)
         w2, w3 = ht3(x, ax, True, thresh*t_scale)

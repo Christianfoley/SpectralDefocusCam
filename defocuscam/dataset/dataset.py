@@ -1,5 +1,5 @@
 from torch.utils.data import Dataset
-from torchvision import datasets, transforms
+from torchvision import transforms
 from torch.utils.data import DataLoader
 
 import scipy.io
@@ -11,7 +11,7 @@ import os
 import glob
 import time
 
-from dataset.preprocess_data import read_compressed
+from defocuscam.dataset.preprocess_data import read_compressed
 
 
 def get_data(
@@ -110,9 +110,7 @@ def get_data(
     # make dataloaders for pytorch
     train_loader, val_loader, test_loader = None, None, None
     if data_split[0] > 0:
-        train_loader = DataLoader(
-            train, batch_size, shuffle=shuffle, num_workers=workers
-        )
+        train_loader = DataLoader(train, batch_size, shuffle=shuffle, num_workers=workers)
     if data_split[1] > 0:
         val_loader = DataLoader(val, batch_size, shuffle=shuffle, num_workers=workers)
     if data_split[2] > 0:
@@ -178,9 +176,7 @@ class SpectralWrapper(Dataset):
                 elif part == "test":
                     img_paths_frac = dataset.img_paths[val_idx:test_idx]
 
-                dataset_frac = SpectralDataset(
-                    img_paths_frac, dataset.transform, dataset.tag
-                )
+                dataset_frac = SpectralDataset(img_paths_frac, dataset.transform, dataset.tag)
                 partition_datasets.append(dataset_frac)
 
             transform = self.transform
@@ -203,9 +199,7 @@ class SpectralDataset(Dataset):
     def __init__(self, img_paths, transform=None, tag=None):
         self.img_paths = img_paths
         self.transform = transform
-        self.tag = (
-            tag  # possible tags: ['ref','cspaces','header', 'wc', 'pcc', 'pavia']
-        )
+        self.tag = tag  # possible tags: ['ref','cspaces','header', 'wc', 'pcc', 'pavia']
 
         self.readtime = 0
 

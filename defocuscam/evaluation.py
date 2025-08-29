@@ -6,8 +6,8 @@ import pandas as pd
 import dataframe_image as dfi
 import seaborn as sns
 
-import utils.helper_functions as helper
-import utils.metric_utils as metric_utils
+import defocuscam.utils.helper_functions as helper
+import defocuscam.utils.metric_utils as metric_utils
 
 
 METRICS = ("mae", "mse", "cossim", "psnr", "ssim", "lpips")
@@ -53,9 +53,7 @@ def generate_score_table(all_scores, save_dir=TABLE_DIR, stack_depths=STACK_DEPT
 
     scores_df = pd.DataFrame(all_scores)
     cm = sns.light_palette("green", as_cmap=True)
-    df_styled = scores_df.style.background_gradient(cmap=cm).highlight_max(
-        axis="columns"
-    )
+    df_styled = scores_df.style.background_gradient(cmap=cm).highlight_max(axis="columns")
     dfi.export(
         df_styled,
         os.path.join(save_dir, "metrics_table.png"),

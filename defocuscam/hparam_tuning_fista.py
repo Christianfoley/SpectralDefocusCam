@@ -1,13 +1,15 @@
-import os, glob, tqdm
+import os
+import glob
+import tqdm
 import matplotlib.pyplot as plt
 import torch
 import time
 import numpy as np
 import PIL.Image as Image
 
-import utils.helper_functions as helper
-import utils.diffuser_utils as diffuser_utils
-import train
+import defocuscam.utils.helper_functions as helper
+import defocuscam.utils.diffuser_utils as diffuser_utils
+from defocuscam import train
 
 
 def fista_hparam_search(
@@ -71,9 +73,7 @@ def fista_hparam_search(
 
     for i, val in enumerate(tv_l_vals):
         startval, endval = (-search_num + 1, search_num - 1)
-        search_values = np.logspace(
-            startval, endval, search_num * 2 - 1, base=searchbase
-        )
+        search_values = np.logspace(startval, endval, search_num * 2 - 1, base=searchbase)
         x_w_vals[i] = np.stack(np.meshgrid(search_values, search_values), axis=2)
 
     # traverse grid
@@ -95,11 +95,9 @@ def fista_hparam_search(
                         os.makedirs(savedir)
                     fig = plt.figure(facecolor="white", figsize=(9, 9), dpi=100)
                     plt.imshow(
-                        (
-                            helper.value_norm(helper.stack_rgb_opt_30(recon)) * 255
-                        ).astype(np.uint8)
+                        (helper.value_norm(helper.stack_rgb_opt_30(recon)) * 255).astype(np.uint8)
                     )
-                    imgfile = f"lambda{tv_l_vals[v]:.3f}_x{x_w_vals[v,i,j,0]:.3f}_w{x_w_vals[v,i,j,1]:.3f}_loss{model.model2.llist[-1]}.png"
+                    imgfile = f"lambda{tv_l_vals[v]:.3f}_x{x_w_vals[v, i, j, 0]:.3f}_w{x_w_vals[v, i, j, 1]:.3f}_loss{model.model2.llist[-1]}.png"
                     plt.savefig(os.path.join(savedir, str(imgfile)))
                 print(
                     f"Lambda: {tv_l_vals[v]:.4f} --- {i}/{x_w_vals.shape[1]} {j}/{x_w_vals.shape[2]}: Loss = {np.min(model.model2.llist):.4f}/{np.min(best[1]):.4f}"
@@ -131,9 +129,7 @@ def main():
         dim=patch_size[0],
         outlier_std_threshold=3,
     )
-    measurements = [
-        prep(np.array(Image.open(x))) for x in tqdm.tqdm(files, "Preprocessing")
-    ]
+    measurements = [prep(np.array(Image.open(x))) for x in tqdm.tqdm(files, "Preprocessing")]
 
     # ----------- Build model ---------------#
     stack_depth = num_ims  # number of images in your stack
@@ -205,9 +201,7 @@ def main():
         savedir=savedir,
     )
 
-    print(
-        f"Best params: \n\t tv_lambda: {best_w[0]} \n\t x and y weights: {best_w[1]} \n\t"
-    )
+    print(f"Best params: \n\t tv_lambda: {best_w[0]} \n\t x and y weights: {best_w[1]} \n\t")
     print(f"Minimal loss: {np.min(llist)}")
     print(f"Total time: {time.time() - start:.2f} seconds")
 

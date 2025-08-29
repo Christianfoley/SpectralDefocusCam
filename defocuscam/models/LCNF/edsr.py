@@ -7,13 +7,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.LCNF.helpers import register
+from defocuscam.models.LCNF.helpers import register
 
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
-    return nn.Conv2d(
-        in_channels, out_channels, kernel_size, padding=(kernel_size // 2), bias=bias
-    )
+    return nn.Conv2d(in_channels, out_channels, kernel_size, padding=(kernel_size // 2), bias=bias)
 
 
 class ResBlock(nn.Module):

@@ -1,7 +1,6 @@
 import numpy as np
 import time
 import torch
-import torch.nn.functional as F
 import tqdm
 import matplotlib.pyplot as plt
 import scipy.io
@@ -13,19 +12,17 @@ sys.path.append("..")
 
 from torch.utils.tensorboard import SummaryWriter
 
-from utils.diffuser_utils import *
-import utils.early_stop_utils as stopping
-import utils.helper_functions as helper
-import utils.optimizer_utils as optim_utils
+from defocuscam.utils.diffuser_utils import *
+import defocuscam.utils.early_stop_utils as stopping
+import defocuscam.utils.helper_functions as helper
+import defocuscam.utils.optimizer_utils as optim_utils
 
-import dataset.dataset as ds
-import dataset.precomp_dataset as pre_ds
-from models.get_model import get_model
+import defocuscam.dataset.dataset as ds
+import defocuscam.dataset.precomp_dataset as pre_ds
+from defocuscam.models.get_model import get_model
 
 
 # don't delete: registering
-import models.LCNF.edsr
-import models.LCNF.mlp
 
 
 def get_save_folder(config):
@@ -156,7 +153,7 @@ def generate_plot(model_input, recon, gt):
     x = np.random.randint(0, recon.shape[2])
     ax[3].plot(recon[:, y, x], color="red", label="prediction")
     ax[3].plot(gt[:, y, x], color="blue", label="ground_truth")
-    ax[3].set_title(f"spectral response: pixel {(y,x)}")
+    ax[3].set_title(f"spectral response: pixel {(y, x)}")
     plt.legend()
     plt.tight_layout()
 
@@ -246,9 +243,7 @@ def run_training(
 
             # Enforce a physical constraint on the blur parameters
             if model.model1.psf["optimize"]:
-                model.model1.w_blur.data = torch.clip(
-                    model.model1.w_blur.data, 0.0006, 1
-                )
+                model.model1.w_blur.data = torch.clip(model.model1.w_blur.data, 0.0006, 1)
             prop_time += time.time() - mark
             mark = time.time()
             del y
@@ -315,12 +310,8 @@ def run_training(
 
         # log to tensorboard
         writer.add_scalar("train loss", train_loss_list[-1], global_step=total_updates)
-        writer.add_scalar(
-            "validation loss", val_loss_list[-1], global_step=total_updates
-        )
-        writer.add_scalar(
-            "learning rate", optim_utils.get_lr(optimizer), global_step=total_updates
-        )
+        writer.add_scalar("validation loss", val_loss_list[-1], global_step=total_updates)
+        writer.add_scalar("learning rate", optim_utils.get_lr(optimizer), global_step=total_updates)
         if not logged_graph:
             writer.add_graph(model, sample["input"].to(device), verbose=False)
             logged_graph = True
@@ -390,9 +381,7 @@ def main(config):
             config["num_workers"],
             config["forward_model_params"],
         )
-    print(
-        f"Done! {len(train_loader)} training samples, {len(val_loader)} validation samples"
-    )
+    print(f"Done! {len(train_loader)} training samples, {len(val_loader)} validation samples")
 
     print("Loading model...", end="")
     model = get_model(config, device=device)

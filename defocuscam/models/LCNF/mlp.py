@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from models.LCNF.helpers import register
+from defocuscam.models.LCNF.helpers import register
 
 
 class MLP_Layer(nn.Module):

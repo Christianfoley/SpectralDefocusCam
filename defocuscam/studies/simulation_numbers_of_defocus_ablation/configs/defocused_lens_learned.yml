@@ -4,11 +4,11 @@
 # ------------------------------------------ #
 
 # data paths
-checkpoint_dir: "/home/cfoley/defocuscamdata/models/checkpoint_train_02_07_2024_lsi_adjoint_condunet_L1psf_1meas_blurry.yml/2024_03_12_07_11_06/saved_model_ep6_testloss_0.13591050004305424.pt"
-psf_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/11_21/singlepos/psfs_ONAXIS_telecent25um"
-base_data_path: "/home/cfoley/SpectralDefocusCam/studies/data/test_set_small"
-save_recon_path: "/home/cfoley/SpectralDefocusCam/studies/simulation_numbers_of_defocus_ablation/outputs/defocuscam_learned/"
-mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+checkpoint_dir: "../../../data/models/checkpoint_train_02_07_2024_lsi_adjoint_batchnorm_L1psf_1meas_blurry.yml/2024_03_26_15_02_53/saved_model_ep45_testloss_0.08354938308761087.pt"
+psf_dir: "../../../data/calibration_data/lsi_psfs_raw"
+base_data_path: "../../../data/sample_data_preprocessed/model_ablation_test_set"
+save_recon_path:  "outputs/defocused_lens_learned/"
+mask_dir: "../../../data/calibration_data/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 # model params
 device: 0

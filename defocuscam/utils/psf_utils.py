@@ -1,5 +1,7 @@
 # utils for experimental psfs
-import sys, glob, os, pprint
+import sys
+import glob
+import os
 import gc
 from tqdm import tqdm
 
@@ -14,8 +16,8 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as vision_F
 
-import utils.diffuser_utils as diffuser_utils
-from models.rdmpy._src import seidel, util, polar_transform
+import defocuscam.utils.diffuser_utils as diffuser_utils
+from defocuscam.models.rdmpy._src import seidel, util, polar_transform
 
 
 ### ---------- Utility functions ---------- ##
@@ -478,9 +480,7 @@ def view_patched_psf_rings(
         for j, point in enumerate(circ_points[i]):
             rotated_psfs.append(
                 rotate_psf(
-                    process_psf_patch(
-                        psf_patches[i], psf_coordinates[i], threshold, psf_dim
-                    ),
+                    process_psf_patch(psf_patches[i], psf_coordinates[i], threshold, psf_dim),
                     centered_coords[i],
                     point,
                     dim,
@@ -703,17 +703,13 @@ def radial_subdivide(psf_coords, sys_center, maxval, return_radii=False):
         radii_i = sorted(
             [
                 min(
-                    diffuser_utils.get_radius(
-                        coord[0] - sys_center[0], coord[1] - sys_center[1]
-                    ),
+                    diffuser_utils.get_radius(coord[0] - sys_center[0], coord[1] - sys_center[1]),
                     maxval,
                 )
                 for coord in psf_coords[i]
             ]
         )
-        subdivisions_i = [
-            (radii_i[j] + radii_i[j + 1]) // 2 for j in range(len(radii_i) - 1)
-        ]
+        subdivisions_i = [(radii_i[j] + radii_i[j + 1]) // 2 for j in range(len(radii_i) - 1)]
 
         subdivisions.append(subdivisions_i)
         radii.append(sorted(radii_i))
@@ -759,9 +755,7 @@ def plot_subdivisions(blur_levels, subdivisions, radii, superimposed_psfs):
             ymax=len(subdivisions[i]),
             colors=["red"] * len(subdivisions),
         )
-    plt.suptitle(
-        "PSF distances from alignment axis and chosen radial subdivisions", fontsize=18
-    )
+    plt.suptitle("PSF distances from alignment axis and chosen radial subdivisions", fontsize=18)
     plt.show()
 
 
@@ -817,9 +811,7 @@ def interp_psf_ramp(psfs, psf_coords, ramp_radii, dim, verbose=False):
         for j in range(p):
             cur_radius = diffuser_utils.get_radius(*psf_coords[i, j])
             end_pos, cur_radii[i, j] = np.ones(2) * cur_radius.item(), cur_radius
-            new_psfs[i, j] = rotate_psf(
-                tt(psfs[i, j]), psf_coords[i, j], end_pos, psf_dim, True
-            )
+            new_psfs[i, j] = rotate_psf(tt(psfs[i, j]), psf_coords[i, j], end_pos, psf_dim, True)
 
     # Resample psf patches at each ramp radius via interpolating between existing psfs
     ramp_radii = np.tile(np.expand_dims(np.array(ramp_radii), 0), reps=(n, 1))
@@ -893,11 +885,7 @@ def rotate_psf(psf, source_pos, end_pos, dim, return_centered=False):
         out_img = util.shift_torch(out_img, end_pos, mode="bicubic")
         return out_img
     else:
-        out_img = (
-            util.shift_torch(torch.tensor(out_img), end_pos, mode="bicubic")
-            .cpu()
-            .numpy()
-        )
+        out_img = util.shift_torch(torch.tensor(out_img), end_pos, mode="bicubic").cpu().numpy()
         return out_img
 
 
@@ -940,16 +928,12 @@ def get_psf_coords(
 
     if method == "conv":
         for i, psf in (
-            tqdm(enum_list(psfs), desc="Centering", file=sys.stdout)
-            if verbose
-            else enum_list(psfs)
+            tqdm(enum_list(psfs), desc="Centering", file=sys.stdout) if verbose else enum_list(psfs)
         ):
             psf = psf.copy()
             psf[psf < np.quantile(psf, threshold)] = 0
             ks = ksizes[i % blur_levels]
-            coords[i % blur_levels].append(
-                get_psf_center(psf, ks * 2 + 4, kernel_size=ks)
-            )
+            coords[i % blur_levels].append(get_psf_center(psf, ks * 2 + 4, kernel_size=ks))
     elif method == "peaks":
         for f in (
             tqdm(range(blur_levels), desc="Centering", file=sys.stdout)
@@ -1075,9 +1059,7 @@ def get_lsi_psfs(
 
     ################ Downsample patches #################
     if crop_size[0] != dim[0] or crop_size[1] != dim[1]:
-        assert (
-            crop_size[0] > dim[0] or crop_size[1] > dim[1]
-        ), "Patch upsampling is not supported"
+        assert crop_size[0] > dim[0] or crop_size[1] > dim[1], "Patch upsampling is not supported"
         psfs = [diffuser_utils.pyramid_down(psf, dim) for psf in psfs]
 
     ############### Apply specified norm #################
@@ -1168,9 +1150,7 @@ def get_lri_psfs(
         for i in range(psf_stack.shape[0]):
             for j in range(psf_stack.shape[1]):
                 patch, coord = psf_stack[i, j], coord_stack[i, j] + dim // 2
-                procd_patches[i, j] = process_psf_patch(
-                    patch, coord, threshold, psf_dim
-                )
+                procd_patches[i, j] = process_psf_patch(patch, coord, threshold, psf_dim)
 
         return procd_patches
 
@@ -1243,17 +1223,13 @@ def get_lri_psfs(
     ############### Computing psf data ################
     psf_data = torch.zeros((blur_levels, dim, len(point_list), dim), device=device)
     for n in list(range(blur_levels)):
-        print(f"Rendering {n+1}/{blur_levels}:")
-        for theta in (
-            tqdm(list(range(dim)), file=sys.stdout) if verbose else list(range(dim))
-        ):
+        print(f"Rendering {n + 1}/{blur_levels}:")
+        for theta in tqdm(list(range(dim)), file=sys.stdout) if verbose else list(range(dim)):
             if use_psf_ramp:
                 psf_idx = theta
             else:
                 current_radius = diffuser_utils.get_radius(*point_list[theta])
-                psf_idx = sum(
-                    [1 if current_radius > div else 0 for div in subdivisions[0]]
-                )
+                psf_idx = sum([1 if current_radius > div else 0 for div in subdivisions[0]])
             psf_data[n, theta] = rotate_psf(
                 psf=procd_psfs[n][psf_idx],
                 source_pos=procd_coords[n][psf_idx],
@@ -1268,9 +1244,7 @@ def get_lri_psfs(
     if polar:
         psf_data = polar_transform.batchimg2polar(psf_data, numRadii=len(point_list))
         n, z, t, a = psf_data.shape
-        psf_data = torch.concat(
-            (psf_data, torch.zeros((n, z, 2, a), device=device)), dim=2
-        )
+        psf_data = torch.concat((psf_data, torch.zeros((n, z, 2, a), device=device)), dim=2)
 
         # Not batching because of memory constraints with fft.rfft
         for i in tqdm(list(range(n)), desc="Computing RoFTs"):

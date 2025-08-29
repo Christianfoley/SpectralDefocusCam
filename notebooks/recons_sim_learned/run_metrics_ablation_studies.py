@@ -1,6 +1,9 @@
 #%%
-import sys, os, glob
-import re, json
+import sys
+import os
+import glob
+import re
+import json
 import scipy.io as io
 import numpy as np
 import pandas as pd
@@ -9,9 +12,6 @@ import multiprocessing as mp
 
 sys.path.insert(0, "../../")
 
-import matplotlib.pyplot as plt
-import dataset.precomp_dataset as ds
-import utils.helper_functions as helper
 import utils.metric_utils as metrics
 
 TEST_DATA_PATH = "/home/cfoley/defocuscamdata/recons/model_ablation_test_set"

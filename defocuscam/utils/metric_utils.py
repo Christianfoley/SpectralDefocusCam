@@ -2,13 +2,11 @@ import numpy as np
 import glob
 import os
 
-import lpips
-import torch
 import skimage.metrics as metrics
 from sklearn.metrics.pairwise import cosine_similarity
 import scipy
 
-import utils.helper_functions as helper
+import defocuscam.utils.helper_functions as helper
 
 
 # absolute metrics
@@ -30,19 +28,6 @@ def get_cossim_score(img1, img2):
 
 
 # structural (x-y) metrics
-def get_mean_lpips_score(img1, img2, net="alex"):
-    """alex for best forward scores, vgg closer to traditional percep loss (for opt)"""
-    loss_fn = lpips.LPIPS(net=net)
-    channels = img1.shape[-3]
-
-    lpips_loss = []
-    for i in range(0, channels // 3):
-        a = torch.tensor(img1[..., 3 * i : 3 * i + 3, :, :])
-        b = torch.tensor(img2[..., 3 * i : 3 * i + 3, :, :])
-        lpips_loss.append(loss_fn(a, b).detach().numpy())
-    return np.mean(np.asarray(lpips_loss))
-
-
 def get_mean_psnr_score(img1, img2):
     mse = get_l2_score(img1, img2)
     maxval = max(np.max(img1), np.max(img2))
@@ -64,7 +49,6 @@ def get_score(metric, pred, sample):
         "cossim": get_cossim_score,
         "psnr": get_mean_psnr_score,
         "ssim": get_mean_ssim_score,
-        "lpips": get_mean_lpips_score,
     }
     return metrics_fns[metric](pred, sample)
 

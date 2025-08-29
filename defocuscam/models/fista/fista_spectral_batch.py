@@ -3,8 +3,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-import models.fista.tv_approx_haar as tv_lib
-import utils.helper_functions as helper
+import defocuscam.models.fista.tv_approx_haar as tv_lib
+import defocuscam.utils.helper_functions as helper
 
 
 class fista_spectral(torch.nn.Module):
@@ -26,7 +26,6 @@ class fista_spectral(torch.nn.Module):
         self.H = []
         self.Hconj = []
         for i in range(0, h.shape[0]):
-
             self.H.append(
                 torch.unsqueeze(
                     torch.fft.fft2(
@@ -164,9 +163,9 @@ class fista_spectral(torch.nn.Module):
 
             l = torch.linalg.norm(err) ** 2 + 2 * self.tv_lambda / self.L * self.tv(x)
         if self.prox_method == "native":
-            l = torch.linalg.norm(
-                err
-            ) ** 2 + 2 * self.tv_lambda / self.L * torch.linalg.norm(x.ravel(), 1)
+            l = torch.linalg.norm(err) ** 2 + 2 * self.tv_lambda / self.L * torch.linalg.norm(
+                x.ravel(), 1
+            )
         if self.prox_method == "non-neg":
             l = torch.linalg.norm(err) ** 2
         return l
@@ -204,12 +203,12 @@ class fista_spectral(torch.nn.Module):
         if self.learned_recon is not None:
             xk, vk = self.init_learned_recon()
         else:
-            xk = torch.zeros(
-                (self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)
-            ).to(self.device)
-            vk = torch.zeros(
-                (self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)
-            ).to(self.device)
+            xk = torch.zeros((self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)).to(
+                self.device
+            )
+            vk = torch.zeros((self.DIMS0 * 2, self.DIMS1 * 2, self.spectral_channels)).to(
+                self.device
+            )
 
         tk = torch.tensor(1.0)
 
@@ -234,9 +233,7 @@ class fista_spectral(torch.nn.Module):
                 print(f"Converged with best loss {min(llist):.4f}")
                 break
 
-            if np.isnan(l.item()) or (
-                self.break_diverge_early and l.item() > llist[0] * 100
-            ):
+            if np.isnan(l.item()) or (self.break_diverge_early and l.item() > llist[0] * 100):
                 print(f"Diverged with loss {l.item():.4f}, stopping...")
                 break
 
@@ -247,9 +244,7 @@ class fista_spectral(torch.nn.Module):
                 self.out_img = out_img
 
                 if self.plot:
-                    fc_img = helper.select_and_average_bands(
-                        out_img, fc_range=self.fc_range
-                    )
+                    fc_img = helper.select_and_average_bands(out_img, fc_range=self.fc_range)
 
                     plt.figure(figsize=(10, 3), dpi=120)
                     plt.subplot(1, 2, 1), plt.imshow(fc_img / np.max(fc_img))
@@ -261,9 +256,7 @@ class fista_spectral(torch.nn.Module):
         xout = self.crop(xk)
         self.llist = llist
         if self.return_best:
-            print(
-                f"Returning best recon, with loss {min_loss} from iter {min_loss_iter}."
-            )
+            print(f"Returning best recon, with loss {min_loss} from iter {min_loss_iter}.")
             return self.xbest, self.llist
         return xout, llist
 
@@ -274,9 +267,7 @@ class fista_spectral(torch.nn.Module):
         }, f"Only accepts meas stack, or batch of stacks. Got {input.shape}"
 
         if len(input.shape) == 4:
-            output = torch.stack(
-                [self.run(input[i, ...])[0] for i in range(input.shape[0])], 0
-            )
+            output = torch.stack([self.run(input[i, ...])[0] for i in range(input.shape[0])], 0)
         else:
             output = self.run(input)[0]
 

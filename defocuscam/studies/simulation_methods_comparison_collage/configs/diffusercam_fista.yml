@@ -4,10 +4,10 @@
 # ------------------------------------------ #
 
 # data paths
-psf_dir: "/home/emarkley/Workspace/PYTHON/SpectralDefocusCam/notebooks/eric_simulation_studies/diffuser_psfs"
-base_data_path: "/home/cfoley/defocuscamdata/recons/model_ablation_test_set"
-save_recon_path: "/home/cfoley/defocuscamdata/recons/sim_comparison_figure/diffuser_recons"
-mask_dir: "/home/cfoley/defocuscamdata/calibration_data/DMM_37UX178_ML_calib_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+psf_dir: "../../../calibration_data/diffuser_psfs"
+base_data_path: "../../../data/recons/model_ablation_test_set"
+save_recon_path: "../../../data/recons/sim_comparison_figure/diffuser_recons"
+mask_dir: "../../../data/calibration_data/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 # model params
 device: 2

@@ -1,8 +1,9 @@
-import studies.run_study_utils as run_study_utils
+import defocuscam.studies.run_study_utils as run_study_utils
 
 import pathlib
 import os
 import glob
+import torch
 
 # We run the same configs for each model, but overriding with
 # all of these parameters
@@ -91,6 +92,10 @@ def generate_sweep_configs(configs):
 def main():
     configs = glob.glob(os.path.join(pathlib.Path(__file__).parent, "configs", "*.yml"))
     config_paths, overrides, suffixes = generate_sweep_configs(configs)
+
+    if not torch.cuda.is_available():
+        for override in overrides:
+            override.update({"device": "cpu"})
 
     run_study_utils.run_study_sweep(
         study_name="simulation_noise_tolerance_ablation",

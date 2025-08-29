@@ -9,11 +9,11 @@
 
 import argparse
 
-import preprocess
-import train
-import inference
-import evaluation
-from utils.helper_functions import read_config
+from defocuscam import preprocess
+from defocuscam import train
+from defocuscam import inference
+from defocuscam import evaluation
+from defocuscam.utils.helper_functions import read_config
 
 
 def parse_args():

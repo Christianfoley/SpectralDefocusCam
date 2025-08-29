@@ -5,7 +5,7 @@ from typing import Tuple, Optional
 import json
 
 import tqdm
-from utils.helper_functions import (
+from defocuscam.utils.helper_functions import (
     fast_rgb_img_from_spectrum,
     _resample_spectral_cube,
     value_norm,
@@ -81,9 +81,7 @@ def _generate_spectral_scan_frames(
         else:
             rgb_frame = data_cube[:, :, i]
 
-        frame = Image.fromarray(
-            (np.clip(rgb_frame / maxvalue, 0, 1) * 255).astype(np.uint8)
-        )
+        frame = Image.fromarray((np.clip(rgb_frame / maxvalue, 0, 1) * 255).astype(np.uint8))
         frames.append(frame)
 
     # Backward scan (excluding endpoints to avoid duplicate frames)
@@ -93,9 +91,7 @@ def _generate_spectral_scan_frames(
         else:
             rgb_frame = data_cube[:, :, i]
 
-        frame = Image.fromarray(
-            (np.clip(rgb_frame / maxvalue, 0, 1) * 255).astype(np.uint8)
-        )
+        frame = Image.fromarray((np.clip(rgb_frame / maxvalue, 0, 1) * 255).astype(np.uint8))
         frames.append(frame)
     return frames
 
@@ -164,9 +160,7 @@ def _generate_side_profile_frames(
         if profile_side == "top":
             scanline_frame = np.rot90(scanline_frame, axes=(0, 1))
         frames.append(
-            Image.fromarray(
-                (np.clip(scanline_frame / maxvalue, 0, 1) * 255).astype(np.uint8)
-            )
+            Image.fromarray((np.clip(scanline_frame / maxvalue, 0, 1) * 255).astype(np.uint8))
         )
     # Backward scan (excluding endpoints to avoid duplicate frames)
     for i in tqdm.tqdm(range(rgb_slice.shape[1] - 2, 0, -1)):
@@ -175,9 +169,7 @@ def _generate_side_profile_frames(
         if profile_side == "top":
             scanline_frame = np.rot90(scanline_frame, axes=(0, 1))
         frames.append(
-            Image.fromarray(
-                (np.clip(scanline_frame / maxvalue, 0, 1) * 255).astype(np.uint8)
-            )
+            Image.fromarray((np.clip(scanline_frame / maxvalue, 0, 1) * 255).astype(np.uint8))
         )
 
     return frames
@@ -227,9 +219,7 @@ def create_spectral_scan_gif(
 
     # Linearly interpolate the cube to make it smoother
     if interpolate_factor is not None and interpolate_factor > 1:
-        assert isinstance(
-            interpolate_factor, int
-        ), "interpolate_factor must be an integer"
+        assert isinstance(interpolate_factor, int), "interpolate_factor must be an integer"
         wavs = np.linspace(spectral_range[0], spectral_range[1], data_cube.shape[-1])
         wavstep = (wavs[1] - wavs[0]) / interpolate_factor
         data_cube, new_wavs = _resample_spectral_cube(data_cube, wavs, step=wavstep)
@@ -297,9 +287,9 @@ def run_visualization(
 ):
     """Helper subrouting for generating a spectral scan gif and a false color image"""
     sample_data_cube = np.squeeze(np.load(sample_path))
-    assert (
-        len(sample_data_cube.shape) == 3
-    ), f"Data cube must be H, W, L for this pipeline, got {sample_data_cube.shape}"
+    assert len(sample_data_cube.shape) == 3, (
+        f"Data cube must be H, W, L for this pipeline, got {sample_data_cube.shape}"
+    )
 
     create_spectral_scan_gif(
         sample_data_cube,
@@ -355,62 +345,44 @@ def main():
         },
     }
 
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running experimental vis..."
-    ):
+    for sample_name, kwargs in tqdm.tqdm(samples.items(), desc="Running experimental vis..."):
         run_visualization(sample_name=sample_name, **kwargs)
 
     # ----------------- SIMULATION DATA (no noise)----------------- #
     SIM_SAMPLE_DIR = "/home/cfoley/SpectralDefocusCam/visualization/results"
-    samples = _get_sim_samples_from_directory(
-        SIM_SAMPLE_DIR, spectral_range=(360, 660), gamma=0.53
-    )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
+    samples = _get_sim_samples_from_directory(SIM_SAMPLE_DIR, spectral_range=(360, 660), gamma=0.53)
+    for sample_name, kwargs in tqdm.tqdm(samples.items(), desc="Running simulation vis..."):
         run_visualization(sample_name=sample_name, **kwargs)
 
     # ----------------- SIMULATION DATA (noised)----------------- #
-    LOW_NOISE_SIM_SAMPLE_DIR = (
-        "/home/cfoley/SpectralDefocusCam/visualization/results/low_noise"
-    )
+    LOW_NOISE_SIM_SAMPLE_DIR = "/home/cfoley/SpectralDefocusCam/visualization/results/low_noise"
     samples = _get_sim_samples_from_directory(
         LOW_NOISE_SIM_SAMPLE_DIR,
         spectral_range=(360, 660),
         gamma=0.53,
         out_dir=os.path.join(OUT_DIR, "low_noise"),
     )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
+    for sample_name, kwargs in tqdm.tqdm(samples.items(), desc="Running simulation vis..."):
         run_visualization(sample_name=sample_name, **kwargs)
 
-    MED_NOISE_SIM_SAMPLE_DIR = (
-        "/home/cfoley/SpectralDefocusCam/visualization/results/medium_noise"
-    )
+    MED_NOISE_SIM_SAMPLE_DIR = "/home/cfoley/SpectralDefocusCam/visualization/results/medium_noise"
     samples = _get_sim_samples_from_directory(
         MED_NOISE_SIM_SAMPLE_DIR,
         spectral_range=(360, 660),
         gamma=0.53,
         out_dir=os.path.join(OUT_DIR, "medium_noise"),
     )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
+    for sample_name, kwargs in tqdm.tqdm(samples.items(), desc="Running simulation vis..."):
         run_visualization(sample_name=sample_name, **kwargs)
 
-    HIGH_NOISE_SIM_SAMPLE_DIR = (
-        "/home/cfoley/SpectralDefocusCam/visualization/results/high_noise"
-    )
+    HIGH_NOISE_SIM_SAMPLE_DIR = "/home/cfoley/SpectralDefocusCam/visualization/results/high_noise"
     samples = _get_sim_samples_from_directory(
         HIGH_NOISE_SIM_SAMPLE_DIR,
         spectral_range=(360, 660),
         gamma=0.53,
         out_dir=os.path.join(OUT_DIR, "high_noise"),
     )
-    for sample_name, kwargs in tqdm.tqdm(
-        samples.items(), desc="Running simulation vis..."
-    ):
+    for sample_name, kwargs in tqdm.tqdm(samples.items(), desc="Running simulation vis..."):
         run_visualization(sample_name=sample_name, **kwargs)
 
 

@@ -9,8 +9,8 @@ from typing import Literal
 import os
 import pathlib
 
-import utils.helper_functions as helper
-from studies.run_study_utils import _get_unique_model_name
+import defocuscam.utils.helper_functions as helper
+from defocuscam.studies.run_study_utils import _get_unique_model_name
 
 sns.set_context("notebook", font_scale=1.2)
 COLORS = sns.husl_palette(n_colors=10, l=0.5)
@@ -154,9 +154,7 @@ def plot_spatial_profile_and_recon(
         plt.title(recon_name)
 
     if out_path:
-        with open(
-            os.path.join(out_path_dir, out_name_suffix + "_spatial_profile.png"), "wb"
-        ) as f:
+        with open(os.path.join(out_path_dir, out_name_suffix + "_spatial_profile.png"), "wb") as f:
             plt.savefig(f)
 
     plt.close(fig3)
@@ -250,9 +248,7 @@ def plot_spectral_profile(
         plt.title(recon_name)
 
     if out_path:
-        with open(
-            os.path.join(out_path_dir, out_name_suffix + "_spectral_profile.png"), "wb"
-        ) as f:
+        with open(os.path.join(out_path_dir, out_name_suffix + "_spectral_profile.png"), "wb") as f:
             plt.savefig(f)
     plt.close(fig)
     return fig
@@ -265,9 +261,7 @@ def main():
     # Get base configs (non-noisy versions)
     base_configs = [
         c
-        for c in glob.glob(
-            os.path.join(pathlib.Path(__file__).parent, "configs", "*.yml")
-        )
+        for c in glob.glob(os.path.join(pathlib.Path(__file__).parent, "configs", "*.yml"))
         if "_noisy_" not in c
     ]
 
@@ -280,9 +274,7 @@ def main():
         # Construct noisy config path by inserting "_noisy" before the type
         base_name = os.path.basename(base_config_path)
         type_start = (
-            base_name.find("_spatial")
-            if "_spatial" in base_name
-            else base_name.find("_spectral")
+            base_name.find("_spatial") if "_spatial" in base_name else base_name.find("_spectral")
         )
         noisy_config_path = base_config_path.replace(
             base_name, f"{base_name[:type_start]}_noisy{base_name[type_start:]}"
@@ -316,20 +308,12 @@ def main():
             # Use base config name for output path, making sure to specify direction
             is_spatial = "spatial" in base_config["base_data_path"]
             peak_height = 0.25 if "wavelength_714" in base_recon_path else 0.5
-            direction = (
-                "vertical"
-                if "vertical" in base_config["base_data_path"]
-                else "horizontal"
-            )
+            direction = "vertical" if "vertical" in base_config["base_data_path"] else "horizontal"
 
             if is_spatial:
                 recon_name = "_".join([recon_name, direction])
-                base_recon = load_and_process_recon(
-                    base_recon_path, CROP_COORDS[direction]
-                )
-                noisy_recon = load_and_process_recon(
-                    noisy_recon_path, CROP_COORDS[direction]
-                )
+                base_recon = load_and_process_recon(base_recon_path, CROP_COORDS[direction])
+                noisy_recon = load_and_process_recon(noisy_recon_path, CROP_COORDS[direction])
 
                 recon_crop, spatial_profile = plot_spatial_profile_and_recon(
                     base_recon,

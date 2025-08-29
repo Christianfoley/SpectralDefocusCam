@@ -10,12 +10,21 @@ __pycache__/*
 *.npy
 */*.npy
 
+# output & data directories for the studies
 defocuscam/studies/*/outputs/
 defocuscam/studies/*/data/
 defocuscam/studies/data
 defocuscam/wandb/
 defocuscam/studies/wandb/
 
+# data directories
+data/calibration_data/*
+data/models/*
+data/experimental_measurements/*
+data/fruitdata/*
+
 *.egg-info
 
 __*
+
+wandb/

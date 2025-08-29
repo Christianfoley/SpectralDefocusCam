@@ -1,12 +1,13 @@
 import numpy as np
 import torch
-import os, glob
+import os
+import glob
 import scipy.io as io
 from datetime import datetime
 import tqdm
 
-from utils.diffuser_utils import *
-import utils.psf_utils as psf_utils
+from defocuscam.utils.diffuser_utils import *
+import defocuscam.utils.psf_utils as psf_utils
 
 
 class ForwardModel(torch.nn.Module):
@@ -62,9 +63,7 @@ class ForwardModel(torch.nn.Module):
             self.w_init = np.linspace(0.002, 0.035, self.num_ims)
         if not self.psf["symmetric"]:
             self.w_init = np.linspace(0.002, 0.01, self.num_ims)
-            self.w_init = np.repeat(
-                np.array(self.w_init)[np.newaxis], self.num_ims, axis=0
-            ).T
+            self.w_init = np.repeat(np.array(self.w_init)[np.newaxis], self.num_ims, axis=0).T
             self.w_init[:, 1] *= 0.5
         x = np.linspace(-1, 1, self.DIMS1)
         y = np.linspace(-1, 1, self.DIMS0)
@@ -93,7 +92,7 @@ class ForwardModel(torch.nn.Module):
         self.mask_noise_intensity = self.mask_noise_params.get("intensity", 0.05)
         self.mask_noise_stopband = self.mask_noise_params.get("stopband_only", True)
         self.mask_noise_type = self.mask_noise_params.get("type", "gaussian")
-        
+
         # initialize sample noise (photon & read noise) parameters
         self.sample_noise_params = params.get("sample_noise", {})
         self.read_noise_intensity = self.sample_noise_params.get("intensity", 0.001)
@@ -172,7 +171,7 @@ class ForwardModel(torch.nn.Module):
 
     def sim_read_noise(self, b):
         """
-        Simulates read noise sampling from a gaussian normal distribution, with an 
+        Simulates read noise sampling from a gaussian normal distribution, with an
         intensity varying randomly within the range selected.
 
         Parameters
@@ -189,14 +188,14 @@ class ForwardModel(torch.nn.Module):
         """
         intensity = self.read_noise_intensity
 
-        # for synthetic data generation, intensity is sampled randomly from a 
+        # for synthetic data generation, intensity is sampled randomly from a
         # specified range i.e. as an augmentation
         if not isinstance(self.read_noise_intensity, float):
             intensity = np.random.uniform(*self.read_noise_intensity)
 
         noise = torch.randn_like(b) * intensity * b.max()
         return torch.clip(b, min=0) + noise.to(self.device)
-    
+
     def sim_shot_noise(self, b):
         """
         Simulates shot noise by sampling from a Poisson distribution with a mean
@@ -215,7 +214,7 @@ class ForwardModel(torch.nn.Module):
         """
         photon_count = self.shot_noise_photon_count
 
-        # for synthetic data generation, photon count is sampled randomly from a 
+        # for synthetic data generation, photon count is sampled randomly from a
         # specified range i.e. as an augmentation
         if not isinstance(self.shot_noise_photon_count, int | float):
             photon_count = np.random.uniform(*self.shot_noise_photon_count)
@@ -286,9 +285,7 @@ class ForwardModel(torch.nn.Module):
             spec_channels += 1
             padsize += 1
         padsize = size if size >= 0 else padsize
-        return F.pad(
-            x, (0, 0, 0, 0, padsize // 2, padsize // 2 + padsize % 2), "constant", 0
-        )
+        return F.pad(x, (0, 0, 0, 0, padsize // 2, padsize // 2 + padsize % 2), "constant", 0)
 
     def Hfor(self, v, h, mask):
         """
@@ -310,9 +307,7 @@ class ForwardModel(torch.nn.Module):
         """
         V = fft_im(my_pad(self, v))
         H = fft_psf(self, h)
-        b = torch.sum(
-            mask * crop_forward(self, torch.fft.ifft2(H * V).real), 2, keepdim=True
-        )
+        b = torch.sum(mask * crop_forward(self, torch.fft.ifft2(H * V).real), 2, keepdim=True)
         return b
 
     def Hadj(self, b, h, mask):
@@ -472,9 +467,7 @@ def build_data_pairs(data_path, model, batchsize=1):
         if len(batch) == batchsize or i == len(data_files) - 1:
             img_batch = torch.zeros((len(batch), 1, *img_shape), device=model.device)
             for j, (_, sample) in enumerate(batch):
-                img_batch[j] = torch.tensor(np.expand_dims(sample["image"], 0)).to(
-                    model.device
-                )
+                img_batch[j] = torch.tensor(np.expand_dims(sample["image"], 0)).to(model.device)
 
             out_batch = model(img_batch.permute(0, 1, 4, 2, 3)).detach().cpu().numpy()
 

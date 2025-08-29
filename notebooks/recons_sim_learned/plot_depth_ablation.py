@@ -1,7 +1,8 @@
 # %%
 import matplotlib.pyplot as plt
 import seaborn as sns
-import json, re
+import json
+import re
 
 
 def get_scores_by_metric(scores):
