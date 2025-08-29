@@ -28,3 +28,6 @@ data/fruitdata/*
 __*
 
 wandb/
+
+.vscode/
+.*/
