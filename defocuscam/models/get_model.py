@@ -11,9 +11,7 @@ import defocuscam.models.Unet.unet as Unet2d
 import defocuscam.models.Unet.unet3d as Unet3d
 import defocuscam.models.Unet.unet3d_conditioned as Unet3dcond
 import defocuscam.models.Unet.R2attunet as R2attunet3d
-import defocuscam.models.LCNF.liif as liif
 import defocuscam.models.fista.fista_spectral_batch as fista
-import defocuscam.models.fistanet.fista_net_spectral as fistanet
 
 
 def get_model(config, device, fwd_only=False, force_psfs=None):
@@ -71,13 +69,6 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
             recon_model = fista.fista_spectral(
                 force_psfs, torch.tensor(mask), params=rm_params, device=device
             )
-    elif rm_params["model_name"] == "fistanet":
-        recon_model = fistanet.fista_net_spectral(
-            forward_model.psfs,
-            torch.tensor(mask.transpose(2, 0, 1)),
-            params=rm_params,
-            device=device,
-        )
     elif rm_params["model_name"] == "unet":
         recon_model = Unet3d.Unet(
             n_channel_in=rm_params["num_measurements"],
@@ -110,13 +101,8 @@ def get_model(config, device, fwd_only=False, force_psfs=None):
             in_ch=rm_params["num_measurements"],
             t=rm_params.get("recurrence_t", 2),
         )
-    elif rm_params["model_name"] == "lcnf":
-        encoder_specs = [rm_params["encoder_specs"]] * rm_params["num_measurements"]
-        recon_model = liif.LIIF(
-            encoder_specs,
-            rm_params["imnet_spec"],
-            rm_params["enhancements"],
-        )
+    else:
+        raise ValueError(f"Reconstruction model {rm_params['model_name']} not recognized")
 
     # build ensemble and load any pretrained weights
     full_model = ensemble.SSLSimulationModel(forward_model, recon_model)

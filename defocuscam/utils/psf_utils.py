@@ -31,18 +31,6 @@ def get_circular_kernel(diameter):
     return kernel
 
 
-def denoise_speckle(img, thresh_val=None):
-    if thresh_val == None:
-        thresh_val = np.median(img)
-
-    # get binary de-speckling mask
-    denoise_mask = cv2.medianBlur((img > thresh_val).astype("float32"), ksize=5)
-    denoise_mask = denoise_mask > np.max(denoise_mask) / 2
-
-    denoised_img = np.where(denoise_mask > 0, img, thresh_val)
-    return denoised_img
-
-
 def one_normalize(im):
     im = im - np.min(im)
     return im / np.max(im)

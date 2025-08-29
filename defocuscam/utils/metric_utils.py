@@ -30,7 +30,6 @@ def get_cossim_score(img1, img2):
 # structural (x-y) metrics
 def get_mean_psnr_score(img1, img2):
     mse = get_l2_score(img1, img2)
-    maxval = max(np.max(img1), np.max(img2))
     psnr = 20 * np.log10(1 / np.sqrt(mse))
     return psnr
 
