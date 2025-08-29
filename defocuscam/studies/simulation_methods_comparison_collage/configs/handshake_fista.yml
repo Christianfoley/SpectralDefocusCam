@@ -2,7 +2,7 @@
 psf_dir: "../../../data/calibration_data/handshake_psfs"
 base_data_path: "../../../data/recons/model_ablation_test_set"
 save_recon_path:  "../../../data/recons/sim_comparison_figure/handshake_recons"
-mask_dir: "../../../data/calibration_data/calib_matrix_2_23_2024_processed/calibration_matrix_390-870_30chan_stride16_avg16.mat"
+mask_dir: "../../../data/calibration_data/calibration_matrix_390-870_30chan_stride16_avg16.mat"
 
 device: 0
 data_precomputed: False

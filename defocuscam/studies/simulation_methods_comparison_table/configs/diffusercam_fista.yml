@@ -4,7 +4,7 @@
 # ------------------------------------------ #
 
 # data paths
-psf_dir: "/home/emarkley/Workspace/PYTHON/SpectralDefocusCam/notebooks/eric_simulation_studies/diffuser_psfs"
+psf_dir: "../../../data/calibration_data/diffuser_psfs"
 base_data_path: "../../../data/sample_data_preprocessed/model_ablation_test_set"
 save_recon_path: "outputs/diffusercam_fista/"
 mask_dir: "../../../data/calibration_data/calibration_matrix_390-870_30chan_stride16_avg16.mat"
